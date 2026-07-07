@@ -36,9 +36,11 @@ class PermissionCascadeServiceProvider extends ServiceProvider
             return;
         }
 
+        // spatie reads the key from column_names.team_foreign_key (the registrar's
+        // teamsKey and the migration both use it) — not a top-level permission key.
         config([
             'permission.teams' => true,
-            'permission.team_foreign_key' => config('permission-cascade.team_foreign_key', 'team_id'),
+            'permission.column_names.team_foreign_key' => config('permission-cascade.team_foreign_key', 'team_id'),
         ]);
     }
 }

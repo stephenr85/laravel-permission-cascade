@@ -53,7 +53,7 @@ abstract class TestCase extends Orchestra
 
         // Teams-mode is the package default; make it explicit for the schema below.
         $app['config']->set('permission.teams', true);
-        $app['config']->set('permission.team_foreign_key', 'team_id');
+        $app['config']->set('permission.column_names.team_foreign_key', 'team_id');
     }
 
     protected function createFixtureSchema(): void

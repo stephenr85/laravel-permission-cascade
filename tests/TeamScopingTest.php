@@ -23,5 +23,5 @@ it('scopes a permission to the team it was granted in', function () {
 });
 
 it('uses the configured team foreign key', function () {
-    expect(config('permission.team_foreign_key'))->toBe('team_id');
+    expect(config('permission.column_names.team_foreign_key'))->toBe('team_id');
 });
