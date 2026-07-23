@@ -7,6 +7,7 @@ use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Database\Eloquent\Model;
 use Rushing\PermissionCascade\Concerns\HasUser;
 use Rushing\PermissionCascade\Concerns\HasUserId;
+use Rushing\PermissionCascade\Support\CredentialScope;
 use Rushing\PermissionCascade\Support\Facades\PermissionNamer;
 
 class BaseModelPolicy
@@ -14,6 +15,21 @@ class BaseModelPolicy
     use HandlesAuthorization;
 
     public static $defaultModelClass = Model::class;
+
+    /**
+     * A single cascade permission check, narrowed by the acting credential's scope.
+     *
+     * This is the one place the intersection is applied: the principal must hold the
+     * permission (`$user->can`) AND the acting credential's scope must permit it. Unscoped
+     * credentials pass through unchanged, so this is byte-for-byte today's behaviour until
+     * a host binds a narrowing CredentialScopeResolver. Narrow-only: a scope can subtract
+     * a permission but never grant one `$user->can` denies.
+     */
+    protected function permits($user, string $permission): bool
+    {
+        return $user->can($permission)
+            && app(CredentialScope::class)->permits($permission);
+    }
 
     protected function canCascade($user, Model|string $model, $action)
     {
@@ -24,18 +40,18 @@ class BaseModelPolicy
             $modelClass = get_class($model);
         }
         // modelClass.action
-        if ($user->can(PermissionNamer::assemble($modelClass, $action))) {
+        if ($this->permits($user, PermissionNamer::assemble($modelClass, $action))) {
             return true;
         }
 
         if ($model) {
             // modelClass.id.action
-            if ($user->can(PermissionNamer::assemble($model, $action))) {
+            if ($this->permits($user, PermissionNamer::assemble($model, $action))) {
                 return true;
             }
 
             // modelClass.own.action
-            if ($user->can(PermissionNamer::assemble($modelClass, 'own', $action))) {
+            if ($this->permits($user, PermissionNamer::assemble($modelClass, 'own', $action))) {
                 $classes = class_uses_recursive($model);
                 if (in_array(HasUser::class, $classes)) {
                     $model->loadMissing('user');
@@ -64,12 +80,12 @@ class BaseModelPolicy
         $modelClass = static::$defaultModelClass;
 
         // If user has unqualified view, no scoping needed
-        if ($user->can(PermissionNamer::assemble($modelClass, 'view'))) {
+        if ($this->permits($user, PermissionNamer::assemble($modelClass, 'view'))) {
             return $query;
         }
 
         // If user has own.view, scope to their records
-        if ($user->can(PermissionNamer::assemble($modelClass, 'own', 'view'))) {
+        if ($this->permits($user, PermissionNamer::assemble($modelClass, 'own', 'view'))) {
             $classes = class_uses_recursive($modelClass);
             if (in_array(HasUserId::class, $classes)) {
                 return $query->where('user_id', $user->id);
@@ -84,8 +100,8 @@ class BaseModelPolicy
 
     public function viewAny(Authenticatable $user)
     {
-        return $user->can(PermissionNamer::assemble(static::$defaultModelClass, 'view'))
-            || $user->can(PermissionNamer::assemble(static::$defaultModelClass, 'own', 'view'));
+        return $this->permits($user, PermissionNamer::assemble(static::$defaultModelClass, 'view'))
+            || $this->permits($user, PermissionNamer::assemble(static::$defaultModelClass, 'own', 'view'));
     }
 
     public function view(?Authenticatable $user, Model $instance)
@@ -95,7 +111,7 @@ class BaseModelPolicy
 
     public function create(Authenticatable $user)
     {
-        return $user->can(PermissionNamer::assemble(static::$defaultModelClass, 'create'));
+        return $this->permits($user, PermissionNamer::assemble(static::$defaultModelClass, 'create'));
     }
 
     public function update(Authenticatable $user, Model $instance)

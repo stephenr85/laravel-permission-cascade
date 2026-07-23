@@ -3,6 +3,8 @@
 namespace Rushing\PermissionCascade;
 
 use Illuminate\Support\ServiceProvider;
+use Rushing\PermissionCascade\Contracts\CredentialScopeResolver;
+use Rushing\PermissionCascade\Support\NullCredentialScopeResolver;
 use Rushing\PermissionCascade\Support\PermissionNamer;
 
 class PermissionCascadeServiceProvider extends ServiceProvider
@@ -12,6 +14,22 @@ class PermissionCascadeServiceProvider extends ServiceProvider
         $this->mergeConfigFrom(__DIR__.'/../config/permission-cascade.php', 'permission-cascade');
 
         $this->app->singleton(PermissionNamer::class, fn () => new PermissionNamer);
+
+        // The credential-scope seam. Defaults to unscoped (NullCredentialScopeResolver),
+        // so authorization is unchanged until a host binds a narrowing resolver — either
+        // by pointing config('permission-cascade.credential_scope_resolver') at a class or
+        // closure, or by rebinding this contract directly (e.g. an accounts package that
+        // sources the scope from an acting API token). The cascade never learns what the
+        // credential mechanism is; it only consults permission-names.
+        $this->app->singleton(CredentialScopeResolver::class, function ($app) {
+            $resolver = config('permission-cascade.credential_scope_resolver');
+
+            if ($resolver === null) {
+                return new NullCredentialScopeResolver;
+            }
+
+            return is_callable($resolver) ? $resolver($app) : $app->make($resolver);
+        });
     }
 
     public function boot(): void
