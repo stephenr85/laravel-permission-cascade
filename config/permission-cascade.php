@@ -15,6 +15,11 @@ return [
     // Set false if the host manages spatie's teams config itself.
     'manage_spatie_teams' => true,
 
+    // The permission token the directory-ACL `.shared.` rung reads to gate *manage* on a
+    // `platform`-tier object (view on a platform object is open to any member; manage is not).
+    // A host that seeds a different platform-admin token overrides this. See ADR directory-ACL.
+    'platform_admin_permission' => 'platform.manage',
+
     // The credential-scope seam (see Contracts\CredentialScopeResolver). null → unscoped:
     // authorization is exactly the principal's. Point this at a class-string or a closure
     // returning a CredentialScopeResolver to narrow authority by the acting credential's

@@ -7,6 +7,8 @@ use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Database\Eloquent\Model;
 use Rushing\PermissionCascade\Concerns\HasUser;
 use Rushing\PermissionCascade\Concerns\HasUserId;
+use Rushing\PermissionCascade\Concerns\HasVisibility;
+use Rushing\PermissionCascade\Models\Grant;
 use Rushing\PermissionCascade\Support\CredentialScope;
 use Rushing\PermissionCascade\Support\Facades\PermissionNamer;
 
@@ -66,9 +68,181 @@ class BaseModelPolicy
                     }
                 }
             }
+
+            // modelClass.shared.action — the directory-style ACL rung (ticket 14): explicit,
+            // deny-capable grants + nullable-inheritance visibility tiers. Purely ADDITIVE
+            // beside the token rungs above: it only ever grants access the tokens didn't, and
+            // its deny semantics are internal to grant resolution (a nearer deny beats an
+            // inherited allow) — a deny never revokes a class/instance/steward token above,
+            // which stay non-deniable (anti-lockout). A no-op for models without HasVisibility.
+            if ($this->resolveShared($user, $model, $action)) {
+                return true;
+            }
         }
 
         return false;
+    }
+
+    /**
+     * Effective-access resolution for the `.shared.` rung (ticket 14 / ADR directory ACL):
+     * for actor $user, object $model, ability derived from $action, first rule that fires wins.
+     *
+     *   1. Steward — the object's `user_id`/HasUser owner. **Inherent and non-deniable** (10's
+     *      anti-lockout rule): the owner always retains manage, with no `.own.` token required
+     *      and no deny able to wall them out. Broader than the token-gated `.own.` rung above.
+     *   2. Nearest explicit grant — walk self → ancestors; the nearest level with a grant
+     *      matching the user (direct, or via a Role they hold) decides, and deny beats allow
+     *      at that level.
+     *   3. Effective tier — no grant → resolve `visibility` walking up while NULL: platform →
+     *      any member views (manage gated to the platform-admin token); tenant → any member
+     *      views; private/NULL → steward + grants only.
+     *   4. else deny.
+     */
+    protected function resolveShared($user, Model $model, string $action): bool
+    {
+        if ($user === null || ! in_array(HasVisibility::class, class_uses_recursive($model), true)) {
+            return false;
+        }
+
+        $ability = $action === 'view' ? Grant::ABILITY_VIEW : Grant::ABILITY_MANAGE;
+
+        // Rule 1 — steward is inherent and non-deniable (checked before any grant).
+        if ($this->isSteward($user, $model)) {
+            return true;
+        }
+
+        // Rule 2 — nearest explicit grant (deny beats allow at a level).
+        foreach ($model->visibilityChain() as $node) {
+            $decision = $this->grantDecisionAt($node, $user, $ability);
+            if ($decision !== null) {
+                return $decision;
+            }
+        }
+
+        // Rule 3 — effective tier.
+        $tier = $model->effectiveVisibility();
+
+        if ($tier === 'platform') {
+            return $ability === Grant::ABILITY_VIEW
+                ? true
+                : $this->permits($user, config('permission-cascade.platform_admin_permission', 'platform.manage'));
+        }
+
+        if ($tier === 'tenant') {
+            // Any member views/uses; manage stays steward + grant only (a member should not
+            // be able to delete a tenant-shared object merely by being a member).
+            return $ability === Grant::ABILITY_VIEW;
+        }
+
+        // 'private' / NULL — steward + grants only, both already resolved above.
+        return false;
+    }
+
+    /** Whether $user is the record's steward (its HasUserId `user_id` or a HasUser member). */
+    protected function isSteward($user, Model $model): bool
+    {
+        $classes = class_uses_recursive($model);
+
+        if (in_array(HasUser::class, $classes, true)) {
+            $model->loadMissing('user');
+
+            return $model->user->contains('id', $user->id);
+        }
+
+        if (in_array(HasUserId::class, $classes, true)) {
+            return $model->user_id == $user->id;
+        }
+
+        return false;
+    }
+
+    /**
+     * The grant decision at a single level: null = no matching grant here (fall through to the
+     * next ancestor / tier), true = allow wins, false = deny wins. `manage ⊇ view`: an allow
+     * grant covers any ability at or below its rank; a deny covers any ability at or above it
+     * (deny(view) also blocks manage; deny(manage) does not block view).
+     */
+    protected function grantDecisionAt(Model $node, $user, string $ability): ?bool
+    {
+        if (! in_array(HasVisibility::class, class_uses_recursive($node), true)) {
+            return null;
+        }
+
+        $grants = $node->grants()
+            ->where(fn ($q) => $this->whereGrantee($q, $user))
+            ->get(['ability', 'effect']);
+
+        if ($grants->isEmpty()) {
+            return null;
+        }
+
+        $rank = [Grant::ABILITY_VIEW => 1, Grant::ABILITY_MANAGE => 2];
+        $req = $rank[$ability];
+
+        $covering = $grants->filter(function ($g) use ($rank, $req) {
+            $gr = $rank[$g->ability] ?? 1;
+
+            return $g->effect === Grant::EFFECT_DENY ? $gr <= $req : $gr >= $req;
+        });
+
+        if ($covering->isEmpty()) {
+            return null;
+        }
+
+        return $covering->contains(fn ($g) => $g->effect === Grant::EFFECT_DENY) ? false : true;
+    }
+
+    /**
+     * Constrain a grants query to rows granted to this user — directly, or via any Role the
+     * user holds (a "team" is a Role). Shared by per-record resolution and scopeForUser.
+     */
+    protected function whereGrantee($query, $user): void
+    {
+        $query->where(function ($q) use ($user) {
+            $q->where('grantee_type', $user->getMorphClass())->where('grantee_id', $user->getKey());
+
+            foreach ($this->granteeRoleTuples($user) as $type => $ids) {
+                $q->orWhere(fn ($qq) => $qq->where('grantee_type', $type)->whereIn('grantee_id', $ids));
+            }
+        });
+    }
+
+    /** The user's roles grouped morph-type => [ids], for role-based grant matching. */
+    protected function granteeRoleTuples($user): array
+    {
+        if (! method_exists($user, 'roles')) {
+            return [];
+        }
+
+        return $user->roles
+            ->groupBy(fn ($r) => $r->getMorphClass())
+            ->map(fn ($group) => $group->pluck('id')->all())
+            ->all();
+    }
+
+    /**
+     * Grantable ids reachable from a direct grant of the given effect for a view listing.
+     * allow → ability in {view, manage} (manage ⊇ view); deny → ability view only
+     * (a manage-deny doesn't hide a row from a view listing).
+     *
+     * First-cut approximation: DIRECT grants on the record only — ancestor-inherited grants
+     * are resolved by the per-record `view` policy, not folded into the listing query (that
+     * needs the host's recursive topology; see the ADR).
+     *
+     * @return array<int, int|string>
+     */
+    protected function grantedGrantableIds(string $grantableMorph, $user, string $effect): array
+    {
+        $query = Grant::query()
+            ->where('grantable_type', $grantableMorph)
+            ->where('effect', $effect)
+            ->where(fn ($q) => $this->whereGrantee($q, $user));
+
+        $effect === Grant::EFFECT_ALLOW
+            ? $query->whereIn('ability', [Grant::ABILITY_VIEW, Grant::ABILITY_MANAGE])
+            : $query->where('ability', Grant::ABILITY_VIEW);
+
+        return $query->pluck('grantable_id')->all();
     }
 
     /**
@@ -84,18 +258,59 @@ class BaseModelPolicy
             return $query;
         }
 
-        // If user has own.view, scope to their records
-        if ($this->permits($user, PermissionNamer::assemble($modelClass, 'own', 'view'))) {
-            $classes = class_uses_recursive($modelClass);
-            if (in_array(HasUserId::class, $classes)) {
-                return $query->where('user_id', $user->id);
-            } elseif (in_array(HasUser::class, $classes)) {
-                return $query->whereHas('user', fn ($q) => $q->where('user_id', $user->id));
+        $classes = class_uses_recursive($modelClass);
+        $ownsPermitted = $this->permits($user, PermissionNamer::assemble($modelClass, 'own', 'view'));
+
+        // Legacy path: models that haven't opted into the directory ACL keep own-only scoping.
+        if (! in_array(HasVisibility::class, $classes, true)) {
+            if ($ownsPermitted) {
+                if (in_array(HasUserId::class, $classes)) {
+                    return $query->where('user_id', $user->id);
+                } elseif (in_array(HasUser::class, $classes)) {
+                    return $query->whereHas('user', fn ($q) => $q->where('user_id', $user->id));
+                }
             }
+
+            return $query->whereRaw('1 = 0');
         }
 
-        // No view permission at all — return nothing
-        return $query->whereRaw('1 = 0');
+        // Directory-ACL path: own ∪ (tier-visible ∪ direct allow-grants) − direct deny-grants.
+        // Steward (own) is non-deniable, so denies subtract only from the shared branch.
+        $instance = new $modelClass;
+        $table = $instance->getTable();
+        $morph = $instance->getMorphClass();
+        $allowedIds = $this->grantedGrantableIds($morph, $user, Grant::EFFECT_ALLOW);
+        $deniedIds = $this->grantedGrantableIds($morph, $user, Grant::EFFECT_DENY);
+
+        // Nothing reachable (no own.view, no grants, and tiers only ever *widen*) still returns
+        // the tier-visible set, so a member with zero tokens can still see tenant/platform rows.
+        return $query->where(function ($outer) use ($table, $classes, $ownsPermitted, $user, $allowedIds, $deniedIds) {
+            $shared = function ($q) use ($table, $allowedIds, $deniedIds) {
+                $q->where(function ($tierOrGrant) use ($table, $allowedIds) {
+                    $tierOrGrant->whereIn("{$table}.visibility", ['tenant', 'platform']);
+                    if ($allowedIds !== []) {
+                        $tierOrGrant->orWhereIn("{$table}.id", $allowedIds);
+                    }
+                });
+                if ($deniedIds !== []) {
+                    $q->whereNotIn("{$table}.id", $deniedIds);
+                }
+            };
+
+            if ($ownsPermitted) {
+                $outer->where(function ($own) use ($table, $classes, $user) {
+                    if (in_array(HasUserId::class, $classes)) {
+                        $own->where("{$table}.user_id", $user->id);
+                    } elseif (in_array(HasUser::class, $classes)) {
+                        $own->whereHas('user', fn ($qq) => $qq->where('user_id', $user->id));
+                    } else {
+                        $own->whereRaw('1 = 0');
+                    }
+                })->orWhere($shared);
+            } else {
+                $outer->where($shared);
+            }
+        });
     }
 
     public function viewAny(Authenticatable $user)

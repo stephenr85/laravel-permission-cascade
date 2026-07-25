@@ -9,7 +9,9 @@ use Orchestra\Testbench\TestCase as Orchestra;
 use Rushing\PermissionCascade\PermissionCascadeServiceProvider;
 use Rushing\PermissionCascade\Tests\Fixtures\Gadget;
 use Rushing\PermissionCascade\Tests\Fixtures\User;
+use Rushing\PermissionCascade\Tests\Fixtures\Vault;
 use Rushing\PermissionCascade\Tests\Fixtures\Widget;
+use Spatie\Permission\Models\Role;
 use Spatie\Permission\PermissionServiceProvider;
 
 abstract class TestCase extends Orchestra
@@ -22,6 +24,8 @@ abstract class TestCase extends Orchestra
             'user' => User::class,
             'widget' => Widget::class,
             'gadget' => Gadget::class,
+            'vault' => Vault::class,
+            'role' => Role::class,
         ]);
 
         $this->createSpatieSchema();
@@ -76,6 +80,28 @@ abstract class TestCase extends Orchestra
             $table->id();
             $table->string('name')->nullable();
             $table->timestamps();
+        });
+
+        Schema::create('vaults', function (Blueprint $table): void {
+            $table->id();
+            $table->string('name')->nullable();
+            $table->unsignedBigInteger('user_id')->nullable();
+            $table->unsignedBigInteger('parent_id')->nullable();
+            $table->string('visibility')->nullable();
+            $table->timestamps();
+        });
+
+        Schema::create('grants', function (Blueprint $table): void {
+            $table->id();
+            $table->string('grantable_type');
+            $table->unsignedBigInteger('grantable_id');
+            $table->string('grantee_type');
+            $table->unsignedBigInteger('grantee_id');
+            $table->string('ability');
+            $table->string('effect');
+            $table->timestamps();
+            $table->index(['grantable_type', 'grantable_id']);
+            $table->index(['grantee_type', 'grantee_id']);
         });
 
         Schema::create('userables', function (Blueprint $table): void {
