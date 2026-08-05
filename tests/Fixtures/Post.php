@@ -21,7 +21,10 @@ class Post extends Model
 
     protected $table = 'posts';
 
-    protected $casts = ['listed' => 'boolean'];
+    // Cast `visibility` to a backed enum, exactly as an enum-vocabulary host does. This must
+    // survive HasVisibility's default string cast, and the cascade must still see the string
+    // tier (effectiveVisibility coerces the enum) — see HostEnumCastTest.
+    protected $casts = ['listed' => 'boolean', 'visibility' => Reach::class];
 
     /** Opt into the discoverability axis: `scopeForUser` narrows the tier branch to listed rows. */
     public function visibilityListedColumn(): ?string

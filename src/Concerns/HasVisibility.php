@@ -25,9 +25,15 @@ trait HasVisibility
 {
     public function initializeHasVisibility(): void
     {
-        // Cast to a plain string; the tier vocabulary is validated at write time by the host,
-        // not by an Eloquent enum cast (keeps the concern free of an app enum dependency).
-        $this->mergeCasts(['visibility' => 'string']);
+        // Default the tier column to a plain string — the vocabulary is validated at write
+        // time by the host, not by an Eloquent enum cast (keeps the concern free of an app
+        // enum dependency). But NEVER clobber a cast the host already declared: a host whose
+        // reach vocabulary IS an enum casts `visibility` to that enum (e.g. audiostud's
+        // Visibility), and this concern must not fight it. Only merge the string default when
+        // the model has not already cast the column.
+        if (! array_key_exists('visibility', $this->getCasts())) {
+            $this->mergeCasts(['visibility' => 'string']);
+        }
     }
 
     /** Explicit grants attached directly to this record. */
@@ -72,6 +78,12 @@ trait HasVisibility
     {
         foreach ($this->visibilityChain() as $node) {
             $tier = $node->visibility ?? null;
+
+            // A host may cast `visibility` to a backed enum (its reach vocabulary); the
+            // cascade's tier is always the canonical string, so coerce the enum to its value.
+            if ($tier instanceof \BackedEnum) {
+                $tier = $tier->value;
+            }
 
             if ($tier !== null && $tier !== '') {
                 return $tier;
