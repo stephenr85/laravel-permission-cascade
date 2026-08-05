@@ -4,6 +4,8 @@ namespace Rushing\PermissionCascade;
 
 use Illuminate\Support\ServiceProvider;
 use Rushing\PermissionCascade\Contracts\CredentialScopeResolver;
+use Rushing\PermissionCascade\Contracts\ReachResolver;
+use Rushing\PermissionCascade\Support\DefaultReachResolver;
 use Rushing\PermissionCascade\Support\NullCredentialScopeResolver;
 use Rushing\PermissionCascade\Support\PermissionNamer;
 
@@ -26,6 +28,22 @@ class PermissionCascadeServiceProvider extends ServiceProvider
 
             if ($resolver === null) {
                 return new NullCredentialScopeResolver;
+            }
+
+            return is_callable($resolver) ? $resolver($app) : $app->make($resolver);
+        });
+
+        // The reach seam (see Contracts\ReachResolver). Defaults to DefaultReachResolver,
+        // which reproduces the historical tenant/platform vocabulary with no anonymous
+        // reach — so authorization is unchanged until a host binds a resolver that adds
+        // tiers (e.g. a public-to-anonymous tier). A host points
+        // config('permission-cascade.reach_resolver') at a class or closure, or rebinds
+        // this contract directly.
+        $this->app->singleton(ReachResolver::class, function ($app) {
+            $resolver = config('permission-cascade.reach_resolver');
+
+            if ($resolver === null) {
+                return new DefaultReachResolver;
             }
 
             return is_callable($resolver) ? $resolver($app) : $app->make($resolver);

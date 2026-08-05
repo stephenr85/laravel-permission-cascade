@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 use Rushing\PermissionCascade\Concerns\HasUser;
 use Rushing\PermissionCascade\Concerns\HasUserId;
 use Rushing\PermissionCascade\Concerns\HasVisibility;
+use Rushing\PermissionCascade\Contracts\ReachResolver;
 use Rushing\PermissionCascade\Models\Grant;
 use Rushing\PermissionCascade\Support\CredentialScope;
 use Rushing\PermissionCascade\Support\Facades\PermissionNamer;
@@ -41,6 +42,14 @@ class BaseModelPolicy
         } else {
             $modelClass = get_class($model);
         }
+
+        // An anonymous (null) principal holds no permission tokens, so every token rung
+        // below would fatal on `$user->can`. Only the shared/reach rung can widen access
+        // to a guest, and only for an instance.
+        if ($user === null) {
+            return $model ? $this->resolveShared(null, $model, $action) : false;
+        }
+
         // modelClass.action
         if ($this->permits($user, PermissionNamer::assemble($modelClass, $action))) {
             return true;
@@ -93,49 +102,41 @@ class BaseModelPolicy
      *   2. Nearest explicit grant — walk self → ancestors; the nearest level with a grant
      *      matching the user (direct, or via a Role they hold) decides, and deny beats allow
      *      at that level.
-     *   3. Effective tier — no grant → resolve `visibility` walking up while NULL: platform →
-     *      any member views (manage gated to the platform-admin token); tenant → any member
-     *      views; private/NULL → steward + grants only.
+     *   3. Effective reach tier — no grant → resolve `visibility` walking up while NULL, then
+     *      hand the tier to the bound {@see ReachResolver}. The default resolver keeps the
+     *      historical platform/tenant semantics; a host resolver may widen a tier to an
+     *      anonymous ($user === null) viewer.
      *   4. else deny.
+     *
+     * `$user` may be null (an anonymous viewer): the steward and grant rungs need an
+     * identified principal and are skipped, so a guest reaches the tier rung directly.
      */
     protected function resolveShared($user, Model $model, string $action): bool
     {
-        if ($user === null || ! in_array(HasVisibility::class, class_uses_recursive($model), true)) {
+        if (! in_array(HasVisibility::class, class_uses_recursive($model), true)) {
             return false;
         }
 
         $ability = $action === 'view' ? Grant::ABILITY_VIEW : Grant::ABILITY_MANAGE;
 
-        // Rule 1 — steward is inherent and non-deniable (checked before any grant).
-        if ($this->isSteward($user, $model)) {
-            return true;
-        }
+        // Rules 1–2 require an identified principal; an anonymous viewer skips to the tier.
+        if ($user !== null) {
+            // Rule 1 — steward is inherent and non-deniable (checked before any grant).
+            if ($this->isSteward($user, $model)) {
+                return true;
+            }
 
-        // Rule 2 — nearest explicit grant (deny beats allow at a level).
-        foreach ($model->visibilityChain() as $node) {
-            $decision = $this->grantDecisionAt($node, $user, $ability);
-            if ($decision !== null) {
-                return $decision;
+            // Rule 2 — nearest explicit grant (deny beats allow at a level).
+            foreach ($model->visibilityChain() as $node) {
+                $decision = $this->grantDecisionAt($node, $user, $ability);
+                if ($decision !== null) {
+                    return $decision;
+                }
             }
         }
 
-        // Rule 3 — effective tier.
-        $tier = $model->effectiveVisibility();
-
-        if ($tier === 'platform') {
-            return $ability === Grant::ABILITY_VIEW
-                ? true
-                : $this->permits($user, config('permission-cascade.platform_admin_permission', 'platform.manage'));
-        }
-
-        if ($tier === 'tenant') {
-            // Any member views/uses; manage stays steward + grant only (a member should not
-            // be able to delete a tenant-shared object merely by being a member).
-            return $ability === Grant::ABILITY_VIEW;
-        }
-
-        // 'private' / NULL — steward + grants only, both already resolved above.
-        return false;
+        // Rule 3 — effective reach tier, resolved by the bound ReachResolver.
+        return app(ReachResolver::class)->grants($model->effectiveVisibility(), $ability, $user);
     }
 
     /** Whether $user is the record's steward (its HasUserId `user_id` or a HasUser member). */
@@ -246,24 +247,51 @@ class BaseModelPolicy
     }
 
     /**
-     * Scope a query to only include records the user is authorized to view.
-     * Model.view = all records, Model.own.view = only the user's records.
+     * Scope a query to only include records the viewer is authorized to view.
+     * Model.view = all records, Model.own.view = only the viewer's records, plus the
+     * reach-listable tiers (resolved by the bound {@see ReachResolver}) and direct
+     * allow-grants, minus direct deny-grants. `$user` may be null (an anonymous viewer):
+     * a guest sees only the tiers the resolver lists for a null viewer, and only rows
+     * that are `listed` when the model carries a discoverability flag.
      */
-    public function scopeForUser($query, Authenticatable $user)
+    public function scopeForUser($query, ?Authenticatable $user = null)
     {
         $modelClass = static::$defaultModelClass;
+        $classes = class_uses_recursive($modelClass);
+        $hasVisibility = in_array(HasVisibility::class, $classes, true);
 
-        // If user has unqualified view, no scoping needed
-        if ($this->permits($user, PermissionNamer::assemble($modelClass, 'view'))) {
+        // An identified principal with unqualified view sees everything; no scoping.
+        if ($user !== null && $this->permits($user, PermissionNamer::assemble($modelClass, 'view'))) {
             return $query;
         }
 
-        $classes = class_uses_recursive($modelClass);
-        $ownsPermitted = $this->permits($user, PermissionNamer::assemble($modelClass, 'own', 'view'));
+        $instance = new $modelClass;
+        $table = $instance->getTable();
+        $reach = app(ReachResolver::class);
+        $tiers = $reach->listableTiers($user);
+        $listedColumn = $hasVisibility ? $instance->visibilityListedColumn() : null;
 
-        // Legacy path: models that haven't opted into the directory ACL keep own-only scoping.
-        if (! in_array(HasVisibility::class, $classes, true)) {
-            if ($ownsPermitted) {
+        // The tier-visible sub-query: reach-listable tiers, narrowed to `listed` rows when
+        // the model has a discoverability axis. Empty tier set → matches nothing.
+        $tierBranch = function ($q) use ($table, $tiers, $listedColumn) {
+            if ($tiers === []) {
+                $q->whereRaw('1 = 0');
+
+                return;
+            }
+            $q->whereIn("{$table}.visibility", $tiers);
+            if ($listedColumn !== null) {
+                $q->where("{$table}.{$listedColumn}", true);
+            }
+        };
+
+        // Legacy path: models without the directory ACL keep own-only scoping — and a guest
+        // sees nothing, since there is no reach axis to widen to.
+        if (! $hasVisibility) {
+            if ($user === null) {
+                return $query->whereRaw('1 = 0');
+            }
+            if ($this->permits($user, PermissionNamer::assemble($modelClass, 'own', 'view'))) {
                 if (in_array(HasUserId::class, $classes)) {
                     return $query->where('user_id', $user->id);
                 } elseif (in_array(HasUser::class, $classes)) {
@@ -274,20 +302,25 @@ class BaseModelPolicy
             return $query->whereRaw('1 = 0');
         }
 
+        // Anonymous viewer on a directory-ACL model: only the reach-listable tiers (no own,
+        // no grants — a guest holds neither).
+        if ($user === null) {
+            return $query->where($tierBranch);
+        }
+
         // Directory-ACL path: own ∪ (tier-visible ∪ direct allow-grants) − direct deny-grants.
         // Steward (own) is non-deniable, so denies subtract only from the shared branch.
-        $instance = new $modelClass;
-        $table = $instance->getTable();
         $morph = $instance->getMorphClass();
+        $ownsPermitted = $this->permits($user, PermissionNamer::assemble($modelClass, 'own', 'view'));
         $allowedIds = $this->grantedGrantableIds($morph, $user, Grant::EFFECT_ALLOW);
         $deniedIds = $this->grantedGrantableIds($morph, $user, Grant::EFFECT_DENY);
 
-        // Nothing reachable (no own.view, no grants, and tiers only ever *widen*) still returns
-        // the tier-visible set, so a member with zero tokens can still see tenant/platform rows.
-        return $query->where(function ($outer) use ($table, $classes, $ownsPermitted, $user, $allowedIds, $deniedIds) {
-            $shared = function ($q) use ($table, $allowedIds, $deniedIds) {
-                $q->where(function ($tierOrGrant) use ($table, $allowedIds) {
-                    $tierOrGrant->whereIn("{$table}.visibility", ['tenant', 'platform']);
+        return $query->where(function ($outer) use ($table, $classes, $ownsPermitted, $user, $allowedIds, $deniedIds, $tierBranch) {
+            $shared = function ($q) use ($table, $allowedIds, $deniedIds, $tierBranch) {
+                $q->where(function ($tierOrGrant) use ($table, $allowedIds, $tierBranch) {
+                    // Tier-visible branch (listed only, when the model has a listed axis)…
+                    $tierOrGrant->where($tierBranch);
+                    // …or a direct allow-grant, which lists regardless of tier/listed.
                     if ($allowedIds !== []) {
                         $tierOrGrant->orWhereIn("{$table}.id", $allowedIds);
                     }

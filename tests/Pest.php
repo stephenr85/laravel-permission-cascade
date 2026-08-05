@@ -1,6 +1,7 @@
 <?php
 
 use Rushing\PermissionCascade\Contracts\CredentialScopeResolver;
+use Rushing\PermissionCascade\Contracts\ReachResolver;
 use Rushing\PermissionCascade\Tests\Fixtures\User;
 use Rushing\PermissionCascade\Tests\TestCase;
 use Spatie\Permission\Models\Permission;
@@ -26,6 +27,15 @@ function grantPermission(User $user, string $name): void
     $user->givePermissionTo($name);
     app(PermissionRegistrar::class)->forgetCachedPermissions();
     $user->unsetRelation('permissions')->unsetRelation('roles');
+}
+
+/**
+ * Bind a reach resolver into the container, modelling a host that adds its own tier
+ * vocabulary (e.g. a public-to-anonymous tier). Mirrors config('permission-cascade.reach_resolver').
+ */
+function bindReach(ReachResolver $resolver): void
+{
+    app()->instance(ReachResolver::class, $resolver);
 }
 
 /**

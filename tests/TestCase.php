@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Schema;
 use Orchestra\Testbench\TestCase as Orchestra;
 use Rushing\PermissionCascade\PermissionCascadeServiceProvider;
 use Rushing\PermissionCascade\Tests\Fixtures\Gadget;
+use Rushing\PermissionCascade\Tests\Fixtures\Post;
 use Rushing\PermissionCascade\Tests\Fixtures\User;
 use Rushing\PermissionCascade\Tests\Fixtures\Vault;
 use Rushing\PermissionCascade\Tests\Fixtures\Widget;
@@ -25,6 +26,7 @@ abstract class TestCase extends Orchestra
             'widget' => Widget::class,
             'gadget' => Gadget::class,
             'vault' => Vault::class,
+            'post' => Post::class,
             'role' => Role::class,
         ]);
 
@@ -88,6 +90,15 @@ abstract class TestCase extends Orchestra
             $table->unsignedBigInteger('user_id')->nullable();
             $table->unsignedBigInteger('parent_id')->nullable();
             $table->string('visibility')->nullable();
+            $table->timestamps();
+        });
+
+        Schema::create('posts', function (Blueprint $table): void {
+            $table->id();
+            $table->string('name')->nullable();
+            $table->unsignedBigInteger('user_id')->nullable();
+            $table->string('visibility')->nullable();
+            $table->boolean('listed')->nullable();
             $table->timestamps();
         });
 

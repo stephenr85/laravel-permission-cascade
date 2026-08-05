@@ -20,6 +20,14 @@ return [
     // A host that seeds a different platform-admin token overrides this. See ADR directory-ACL.
     'platform_admin_permission' => 'platform.manage',
 
+    // The reach seam (see Contracts\ReachResolver) — the audience-breadth axis of
+    // visibility. null → DefaultReachResolver: the historical `tenant`/`platform`
+    // vocabulary with no anonymous reach, so behaviour is unchanged. Point this at a
+    // class-string or a closure returning a ReachResolver to add tiers — e.g. a `public`
+    // tier that widens to an anonymous (guest) viewer, or to drive the listable-tier set.
+    // Hosts may instead rebind the contract in the container directly.
+    'reach_resolver' => null,
+
     // The credential-scope seam (see Contracts\CredentialScopeResolver). null → unscoped:
     // authorization is exactly the principal's. Point this at a class-string or a closure
     // returning a CredentialScopeResolver to narrow authority by the acting credential's

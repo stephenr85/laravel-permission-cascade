@@ -80,4 +80,28 @@ trait HasVisibility
 
         return null;
     }
+
+    /**
+     * The **discoverability** axis (orthogonal to reach): the column carrying a `listed`
+     * flag, or null when this model has no listed axis (the default — off). A host model
+     * that wants "reachable but out of feeds" overrides this to name its boolean column;
+     * `scopeForUser` then subtracts unlisted rows from the *tier-visible* branch, while the
+     * per-record `view()` ignores listed entirely (direct/link access is unaffected).
+     */
+    public function visibilityListedColumn(): ?string
+    {
+        return null;
+    }
+
+    /**
+     * Whether this record is listed (discoverable in feeds). True when the model has no
+     * listed axis; otherwise reads the flag column (a null/absent value is treated as
+     * listed, so opting in without backfilling does not hide existing rows).
+     */
+    public function isListed(): bool
+    {
+        $column = $this->visibilityListedColumn();
+
+        return $column === null ? true : (bool) ($this->{$column} ?? true);
+    }
 }
