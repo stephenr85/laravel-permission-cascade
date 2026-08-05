@@ -1,6 +1,6 @@
 <?php
 
-use Rushing\PermissionCascade\Models\Grant;
+use Rushing\PermissionCascade\Tests\Fixtures\AccessGrant;
 use Rushing\PermissionCascade\Tests\Fixtures\User;
 use Rushing\PermissionCascade\Tests\Fixtures\Vault;
 use Rushing\PermissionCascade\Tests\Fixtures\VaultPolicy;
@@ -46,7 +46,7 @@ it('includes own records when the user holds own.view, on top of the tier set', 
 
 it('includes records shared by a direct allow grant', function () {
     $shared = Vault::create(['name' => 'shared', 'user_id' => $this->other->id, 'visibility' => 'private']);
-    Grant::create([
+    AccessGrant::create([
         'grantable_type' => $shared->getMorphClass(), 'grantable_id' => $shared->id,
         'grantee_type' => $this->user->getMorphClass(), 'grantee_id' => $this->user->id,
         'ability' => 'view', 'effect' => 'allow',
@@ -59,14 +59,14 @@ it('subtracts a deny grant from the shared set but never from own', function () 
     grantPermission($this->user, 'vault.own.view');
     // Own row with a deny against the user — steward is non-deniable, stays visible.
     $mine = Vault::create(['name' => 'mine', 'user_id' => $this->user->id, 'visibility' => 'tenant']);
-    Grant::create([
+    AccessGrant::create([
         'grantable_type' => $mine->getMorphClass(), 'grantable_id' => $mine->id,
         'grantee_type' => $this->user->getMorphClass(), 'grantee_id' => $this->user->id,
         'ability' => 'view', 'effect' => 'deny',
     ]);
     // A tenant-tier row the user would otherwise see, explicitly denied → hidden.
     $denied = Vault::create(['name' => 'denied', 'user_id' => $this->other->id, 'visibility' => 'tenant']);
-    Grant::create([
+    AccessGrant::create([
         'grantable_type' => $denied->getMorphClass(), 'grantable_id' => $denied->id,
         'grantee_type' => $this->user->getMorphClass(), 'grantee_id' => $this->user->id,
         'ability' => 'view', 'effect' => 'deny',

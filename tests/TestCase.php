@@ -7,6 +7,7 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 use Orchestra\Testbench\TestCase as Orchestra;
 use Rushing\PermissionCascade\PermissionCascadeServiceProvider;
+use Rushing\PermissionCascade\Tests\Fixtures\AccessGrant;
 use Rushing\PermissionCascade\Tests\Fixtures\Gadget;
 use Rushing\PermissionCascade\Tests\Fixtures\Post;
 use Rushing\PermissionCascade\Tests\Fixtures\User;
@@ -56,6 +57,10 @@ abstract class TestCase extends Orchestra
         // Point the cascade's ownership traits at the fixture user.
         $app['config']->set('permission-cascade.user_model', User::class);
         $app['config']->set('permission-cascade.team_foreign_key', 'team_id');
+
+        // The package ships no grant model; register the test host's model (Fixtures\AccessGrant)
+        // so the explicit-grant rung resolves against a real table.
+        $app['config']->set('permission-cascade.grant_model', AccessGrant::class);
 
         // Teams-mode is the package default; make it explicit for the schema below.
         $app['config']->set('permission.teams', true);

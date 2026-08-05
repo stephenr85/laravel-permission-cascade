@@ -3,8 +3,8 @@
 namespace Rushing\PermissionCascade\Tests\Fixtures;
 
 use Illuminate\Contracts\Auth\Authenticatable;
+use Rushing\PermissionCascade\Contracts\AccessGrant;
 use Rushing\PermissionCascade\Contracts\ReachResolver;
-use Rushing\PermissionCascade\Models\Grant;
 
 /**
  * A host-style reach vocabulary (what audiostud binds): a `public` tier reachable by
@@ -16,7 +16,7 @@ class PublicReachResolver implements ReachResolver
 {
     public function grants(?string $tier, string $ability, ?Authenticatable $viewer): bool
     {
-        if ($ability !== Grant::ABILITY_VIEW) {
+        if ($ability !== AccessGrant::ABILITY_VIEW) {
             return false;
         }
 

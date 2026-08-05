@@ -8,8 +8,8 @@ use Illuminate\Database\Eloquent\Model;
 use Rushing\PermissionCascade\Concerns\HasUser;
 use Rushing\PermissionCascade\Concerns\HasUserId;
 use Rushing\PermissionCascade\Concerns\HasVisibility;
+use Rushing\PermissionCascade\Contracts\AccessGrant;
 use Rushing\PermissionCascade\Contracts\ReachResolver;
-use Rushing\PermissionCascade\Models\Grant;
 use Rushing\PermissionCascade\Support\CredentialScope;
 use Rushing\PermissionCascade\Support\Facades\PermissionNamer;
 
@@ -32,6 +32,17 @@ class BaseModelPolicy
     {
         return $user->can($permission)
             && app(CredentialScope::class)->permits($permission);
+    }
+
+    /**
+     * The host's grant model class (implementing {@see AccessGrant}), or null when explicit grants
+     * are not wired — in which case the grant rung is inert and resolution uses steward + reach.
+     *
+     * @return class-string|null
+     */
+    protected function grantModel(): ?string
+    {
+        return config('permission-cascade.grant_model');
     }
 
     protected function canCascade($user, Model|string $model, $action)
@@ -117,7 +128,7 @@ class BaseModelPolicy
             return false;
         }
 
-        $ability = $action === 'view' ? Grant::ABILITY_VIEW : Grant::ABILITY_MANAGE;
+        $ability = $action === 'view' ? AccessGrant::ABILITY_VIEW : AccessGrant::ABILITY_MANAGE;
 
         // Rules 1–2 require an identified principal; an anonymous viewer skips to the tier.
         if ($user !== null) {
@@ -165,6 +176,12 @@ class BaseModelPolicy
      */
     protected function grantDecisionAt(Model $node, $user, string $ability): ?bool
     {
+        // The package ships no grant model; when the host hasn't wired one, the grant rung is
+        // inert (no decision) and resolution falls through to the reach tier.
+        if ($this->grantModel() === null) {
+            return null;
+        }
+
         if (! in_array(HasVisibility::class, class_uses_recursive($node), true)) {
             return null;
         }
@@ -177,20 +194,20 @@ class BaseModelPolicy
             return null;
         }
 
-        $rank = [Grant::ABILITY_VIEW => 1, Grant::ABILITY_MANAGE => 2];
+        $rank = [AccessGrant::ABILITY_VIEW => 1, AccessGrant::ABILITY_MANAGE => 2];
         $req = $rank[$ability];
 
         $covering = $grants->filter(function ($g) use ($rank, $req) {
             $gr = $rank[$g->ability] ?? 1;
 
-            return $g->effect === Grant::EFFECT_DENY ? $gr <= $req : $gr >= $req;
+            return $g->effect === AccessGrant::EFFECT_DENY ? $gr <= $req : $gr >= $req;
         });
 
         if ($covering->isEmpty()) {
             return null;
         }
 
-        return $covering->contains(fn ($g) => $g->effect === Grant::EFFECT_DENY) ? false : true;
+        return $covering->contains(fn ($g) => $g->effect === AccessGrant::EFFECT_DENY) ? false : true;
     }
 
     /**
@@ -200,7 +217,11 @@ class BaseModelPolicy
     protected function whereGrantee($query, $user): void
     {
         $query->where(function ($q) use ($user) {
-            $q->where('grantee_type', $user->getMorphClass())->where('grantee_id', $user->getKey());
+            // Bind grantee ids as strings: the grantee_id column is a string morph key so it
+            // holds both uuid-keyed users (a beam host) and bigint-keyed users/roles (another
+            // host) — a strict driver (Postgres) rejects a varchar = integer comparison, so
+            // the cast is what keeps one column serving both key types.
+            $q->where('grantee_type', $user->getMorphClass())->where('grantee_id', (string) $user->getKey());
 
             foreach ($this->granteeRoleTuples($user) as $type => $ids) {
                 $q->orWhere(fn ($qq) => $qq->where('grantee_type', $type)->whereIn('grantee_id', $ids));
@@ -208,7 +229,10 @@ class BaseModelPolicy
         });
     }
 
-    /** The user's roles grouped morph-type => [ids], for role-based grant matching. */
+    /**
+     * The user's roles grouped morph-type => [string ids], for role-based grant matching.
+     * Ids are cast to string to match the string grantee_id column (see whereGrantee).
+     */
     protected function granteeRoleTuples($user): array
     {
         if (! method_exists($user, 'roles')) {
@@ -217,7 +241,7 @@ class BaseModelPolicy
 
         return $user->roles
             ->groupBy(fn ($r) => $r->getMorphClass())
-            ->map(fn ($group) => $group->pluck('id')->all())
+            ->map(fn ($group) => $group->pluck('id')->map(fn ($id) => (string) $id)->all())
             ->all();
     }
 
@@ -234,14 +258,20 @@ class BaseModelPolicy
      */
     protected function grantedGrantableIds(string $grantableMorph, $user, string $effect): array
     {
-        $query = Grant::query()
+        $model = $this->grantModel();
+
+        if ($model === null) {
+            return [];
+        }
+
+        $query = $model::query()
             ->where('grantable_type', $grantableMorph)
             ->where('effect', $effect)
             ->where(fn ($q) => $this->whereGrantee($q, $user));
 
-        $effect === Grant::EFFECT_ALLOW
-            ? $query->whereIn('ability', [Grant::ABILITY_VIEW, Grant::ABILITY_MANAGE])
-            : $query->where('ability', Grant::ABILITY_VIEW);
+        $effect === AccessGrant::EFFECT_ALLOW
+            ? $query->whereIn('ability', [AccessGrant::ABILITY_VIEW, AccessGrant::ABILITY_MANAGE])
+            : $query->where('ability', AccessGrant::ABILITY_VIEW);
 
         return $query->pluck('grantable_id')->all();
     }
@@ -312,8 +342,8 @@ class BaseModelPolicy
         // Steward (own) is non-deniable, so denies subtract only from the shared branch.
         $morph = $instance->getMorphClass();
         $ownsPermitted = $this->permits($user, PermissionNamer::assemble($modelClass, 'own', 'view'));
-        $allowedIds = $this->grantedGrantableIds($morph, $user, Grant::EFFECT_ALLOW);
-        $deniedIds = $this->grantedGrantableIds($morph, $user, Grant::EFFECT_DENY);
+        $allowedIds = $this->grantedGrantableIds($morph, $user, AccessGrant::EFFECT_ALLOW);
+        $deniedIds = $this->grantedGrantableIds($morph, $user, AccessGrant::EFFECT_DENY);
 
         return $query->where(function ($outer) use ($table, $classes, $ownsPermitted, $user, $allowedIds, $deniedIds, $tierBranch) {
             $shared = function ($q) use ($table, $allowedIds, $deniedIds, $tierBranch) {

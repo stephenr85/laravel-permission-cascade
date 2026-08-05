@@ -3,8 +3,8 @@
 namespace Rushing\PermissionCascade\Support;
 
 use Illuminate\Contracts\Auth\Authenticatable;
+use Rushing\PermissionCascade\Contracts\AccessGrant;
 use Rushing\PermissionCascade\Contracts\ReachResolver;
-use Rushing\PermissionCascade\Models\Grant;
 
 /**
  * The default reach vocabulary — the historical `tenant`/`platform` semantics, unchanged:
@@ -30,7 +30,7 @@ class DefaultReachResolver implements ReachResolver
         }
 
         if ($tier === 'platform') {
-            if ($ability === Grant::ABILITY_VIEW) {
+            if ($ability === AccessGrant::ABILITY_VIEW) {
                 return true;
             }
 
@@ -40,7 +40,7 @@ class DefaultReachResolver implements ReachResolver
         }
 
         if ($tier === 'tenant') {
-            return $ability === Grant::ABILITY_VIEW;
+            return $ability === AccessGrant::ABILITY_VIEW;
         }
 
         return false;

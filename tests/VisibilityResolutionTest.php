@@ -1,6 +1,6 @@
 <?php
 
-use Rushing\PermissionCascade\Models\Grant;
+use Rushing\PermissionCascade\Tests\Fixtures\AccessGrant;
 use Rushing\PermissionCascade\Tests\Fixtures\User;
 use Rushing\PermissionCascade\Tests\Fixtures\Vault;
 use Rushing\PermissionCascade\Tests\Fixtures\VaultPolicy;
@@ -18,9 +18,9 @@ beforeEach(function () {
     $this->policy = new VaultPolicy;
 });
 
-function grant(Vault $on, $to, string $ability, string $effect): Grant
+function grant(Vault $on, $to, string $ability, string $effect): AccessGrant
 {
-    return Grant::create([
+    return AccessGrant::create([
         'grantable_type' => $on->getMorphClass(),
         'grantable_id' => $on->getKey(),
         'grantee_type' => $to->getMorphClass(),

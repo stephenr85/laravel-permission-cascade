@@ -4,12 +4,12 @@ namespace Rushing\PermissionCascade\Concerns;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
-use Rushing\PermissionCascade\Models\Grant;
+use LogicException;
 use Rushing\PermissionCascade\Policies\BaseModelPolicy;
 
 /**
  * Opt a policied model into the directory-style ACL: a nullable `visibility` tier column
- * plus explicit, deny-capable {@see Grant}s. Sits beside {@see HasUser}/{@see HasUserId}
+ * plus explicit, deny-capable {@see AccessGrant}s. Sits beside {@see HasUser}/{@see HasUserId}
  * (steward/attribution) — those answer *who owns this*, this answers *who else may see or
  * manage it, and how it is shared*.
  *
@@ -36,10 +36,32 @@ trait HasVisibility
         }
     }
 
-    /** Explicit grants attached directly to this record. */
+    /**
+     * Explicit grants attached directly to this record. Resolves the host's grant model
+     * (implementing {@see \Rushing\PermissionCascade\Contracts\AccessGrant}) from
+     * `config('permission-cascade.grant_model')` — the package ships no model. Throws if the
+     * grant rung is used without a configured model; the base cascade (steward + reach tier)
+     * works without one.
+     */
     public function grants(): MorphMany
     {
-        return $this->morphMany(Grant::class, 'grantable');
+        $model = static::permissionCascadeGrantModel();
+
+        if ($model === null) {
+            throw new LogicException(
+                'permission-cascade: no grant model configured. Set config'
+                .' [permission-cascade.grant_model] to an Eloquent model implementing'
+                .' Rushing\PermissionCascade\Contracts\AccessGrant to use explicit grants.'
+            );
+        }
+
+        return $this->morphMany($model, 'grantable');
+    }
+
+    /** The configured host grant model class, or null when explicit grants are not wired. */
+    public static function permissionCascadeGrantModel(): ?string
+    {
+        return config('permission-cascade.grant_model');
     }
 
     /**

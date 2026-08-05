@@ -20,6 +20,13 @@ return [
     // A host that seeds a different platform-admin token overrides this. See ADR directory-ACL.
     'platform_admin_permission' => 'platform.manage',
 
+    // The host's grant model — an Eloquent model implementing Contracts\AccessGrant (grantable +
+    // grantee morphs, `ability`/`effect`). The package is model-free: it ships the contract
+    // and the resolution logic, not a model, so the host owns the table name, casts, and any
+    // extra columns. null → explicit grants are not wired; authorization uses steward + reach
+    // tier only (the base cascade still works). Example: App\Models\AccessGrant::class.
+    'grant_model' => null,
+
     // The reach seam (see Contracts\ReachResolver) — the audience-breadth axis of
     // visibility. null → DefaultReachResolver: the historical `tenant`/`platform`
     // vocabulary with no anonymous reach, so behaviour is unchanged. Point this at a
