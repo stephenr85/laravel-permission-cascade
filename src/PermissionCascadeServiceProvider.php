@@ -4,9 +4,11 @@ namespace Rushing\PermissionCascade;
 
 use Illuminate\Support\ServiceProvider;
 use Rushing\PermissionCascade\Contracts\CredentialScopeResolver;
+use Rushing\PermissionCascade\Contracts\EntitlementResolver;
 use Rushing\PermissionCascade\Contracts\ReachResolver;
 use Rushing\PermissionCascade\Support\DefaultReachResolver;
 use Rushing\PermissionCascade\Support\NullCredentialScopeResolver;
+use Rushing\PermissionCascade\Support\NullEntitlementResolver;
 use Rushing\PermissionCascade\Support\PermissionNamer;
 
 class PermissionCascadeServiceProvider extends ServiceProvider
@@ -44,6 +46,24 @@ class PermissionCascadeServiceProvider extends ServiceProvider
 
             if ($resolver === null) {
                 return new DefaultReachResolver;
+            }
+
+            return is_callable($resolver) ? $resolver($app) : $app->make($resolver);
+        });
+
+        // The entitlement seam (see Contracts\EntitlementResolver) — the feature-access axis,
+        // distinct from the per-action cascade. null → NullEntitlementResolver: every principal
+        // holds the empty set, so an unbound host is entitled to nothing and behaviour is
+        // unchanged (the DefaultReachResolver discipline, ADR-0009). Point this at a class-string
+        // or a closure returning an EntitlementResolver to map a plan/grant model to a flat set of
+        // entitlement keys (plan-baseline ∪ grants − denies). beam is the authority that binds the
+        // concrete resolver + registers entitlement gate abilities (Frame OS ADR-0013). Hosts may
+        // instead rebind the contract in the container directly.
+        $this->app->singleton(EntitlementResolver::class, function ($app) {
+            $resolver = config('permission-cascade.entitlement_resolver');
+
+            if ($resolver === null) {
+                return new NullEntitlementResolver;
             }
 
             return is_callable($resolver) ? $resolver($app) : $app->make($resolver);

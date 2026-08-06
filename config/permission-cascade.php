@@ -42,4 +42,13 @@ return [
     // it can subtract a granted permission, never grant one the principal lacks. Hosts may
     // instead rebind the contract in the container directly.
     'credential_scope_resolver' => null,
+
+    // The entitlement seam (see Contracts\EntitlementResolver) — the feature-access axis,
+    // orthogonal to the per-action cascade and to reach. null → NullEntitlementResolver: every
+    // principal holds the empty set, so an unbound host is entitled to nothing and behaviour is
+    // unchanged. Point this at a class-string or a closure returning an EntitlementResolver to map
+    // a plan/grant model to a flat set of entitlement keys (plan-baseline ∪ grants − denies). beam
+    // is the authority that binds the concrete resolver and registers entitlement gate abilities
+    // (Frame OS ADR-0013). Hosts may instead rebind the contract in the container directly.
+    'entitlement_resolver' => null,
 ];
