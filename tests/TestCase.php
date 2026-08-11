@@ -8,6 +8,8 @@ use Illuminate\Support\Facades\Schema;
 use Orchestra\Testbench\TestCase as Orchestra;
 use Rushing\PermissionCascade\PermissionCascadeServiceProvider;
 use Rushing\PermissionCascade\Tests\Fixtures\AccessGrant;
+use Rushing\PermissionCascade\Tests\Fixtures\AttributedFolder;
+use Rushing\PermissionCascade\Tests\Fixtures\AttributedNote;
 use Rushing\PermissionCascade\Tests\Fixtures\Gadget;
 use Rushing\PermissionCascade\Tests\Fixtures\Post;
 use Rushing\PermissionCascade\Tests\Fixtures\User;
@@ -29,6 +31,8 @@ abstract class TestCase extends Orchestra
             'vault' => Vault::class,
             'post' => Post::class,
             'role' => Role::class,
+            'attributed-note' => AttributedNote::class,
+            'attributed-folder' => AttributedFolder::class,
         ]);
 
         $this->createSpatieSchema();
@@ -124,6 +128,18 @@ abstract class TestCase extends Orchestra
             $table->unsignedBigInteger('user_id');
             $table->string('userable_type');
             $table->unsignedBigInteger('userable_id');
+        });
+
+        Schema::create('attributed_notes', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('user_id')->nullable();
+            $table->timestamps();
+        });
+
+        Schema::create('attributed_folders', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('user_id')->nullable();
+            $table->timestamps();
         });
     }
 

@@ -20,6 +20,21 @@ class BaseModelPolicy
     public static $defaultModelClass = Model::class;
 
     /**
+     * Instance-level override of the policed model class. Unset (null) for every hand-written
+     * subclass (`CompositionPolicy`, `WidgetPolicy`, …), which keep setting `$defaultModelClass`
+     * statically as before. Exists so ONE shared policy class — {@see ConfiguredModelPolicy}, built
+     * per-model via `UseCascadePolicy` — can serve many models without them colliding on the same
+     * static storage slot.
+     */
+    protected ?string $modelClass = null;
+
+    /** The model class this instance polices: the instance override if set, else the static default. */
+    protected function policedModelClass(): string
+    {
+        return $this->modelClass ?? static::$defaultModelClass;
+    }
+
+    /**
      * A single cascade permission check, narrowed by the acting credential's scope.
      *
      * This is the one place the intersection is applied: the principal must hold the
@@ -286,7 +301,7 @@ class BaseModelPolicy
      */
     public function scopeForUser($query, ?Authenticatable $user = null)
     {
-        $modelClass = static::$defaultModelClass;
+        $modelClass = $this->policedModelClass();
         $classes = class_uses_recursive($modelClass);
         $hasVisibility = in_array(HasVisibility::class, $classes, true);
 
@@ -378,8 +393,8 @@ class BaseModelPolicy
 
     public function viewAny(Authenticatable $user)
     {
-        return $this->permits($user, PermissionNamer::assemble(static::$defaultModelClass, 'view'))
-            || $this->permits($user, PermissionNamer::assemble(static::$defaultModelClass, 'own', 'view'));
+        return $this->permits($user, PermissionNamer::assemble($this->policedModelClass(), 'view'))
+            || $this->permits($user, PermissionNamer::assemble($this->policedModelClass(), 'own', 'view'));
     }
 
     public function view(?Authenticatable $user, Model $instance)
@@ -389,7 +404,7 @@ class BaseModelPolicy
 
     public function create(Authenticatable $user)
     {
-        return $this->permits($user, PermissionNamer::assemble(static::$defaultModelClass, 'create'));
+        return $this->permits($user, PermissionNamer::assemble($this->policedModelClass(), 'create'));
     }
 
     public function update(Authenticatable $user, Model $instance)
