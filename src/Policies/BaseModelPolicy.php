@@ -203,7 +203,13 @@ class BaseModelPolicy
             || in_array(HasUserId::class, $classes, true);
     }
 
-    /** Whether $user is $model's owner per whichever owner trait $model carries. */
+    /**
+     * Whether $user is $model's owner per whichever owner trait $model carries.
+     *
+     * PRECONDITION: callers gate on {@see hasOwnerTrait()} first — the HasUserId fallthrough
+     * reads `user_id` unconditionally, so an un-traited model here would be answered by
+     * whatever `user_id` column it happens (not) to have rather than returning false.
+     */
     protected function ownsDirectly($user, Model $model): bool
     {
         $classes = class_uses_recursive($model);
