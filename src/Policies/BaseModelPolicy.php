@@ -5,6 +5,7 @@ namespace Rushing\PermissionCascade\Policies;
 use Illuminate\Auth\Access\HandlesAuthorization;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Database\Eloquent\Model;
+use Rushing\PermissionCascade\Concerns\HasMorphUser;
 use Rushing\PermissionCascade\Concerns\HasUser;
 use Rushing\PermissionCascade\Concerns\HasUserId;
 use Rushing\PermissionCascade\Concerns\HasVisibility;
@@ -87,20 +88,11 @@ class BaseModelPolicy
                 return true;
             }
 
-            // modelClass.own.action
+            // modelClass.own.action — direct ownership per whichever owner trait the model
+            // carries (HasUser membership, HasMorphUser morph pair, or HasUserId scalar FK).
             if ($this->permits($user, PermissionNamer::assemble($modelClass, 'own', $action))) {
-                $classes = class_uses_recursive($model);
-                if (in_array(HasUser::class, $classes)) {
-                    $model->loadMissing('user');
-                    // HasUser::user() is a morphToMany, so `user` is a collection —
-                    // ownership is membership, not a scalar id comparison.
-                    if ($model->user->contains('id', $user->id)) {
-                        return true;
-                    }
-                } elseif (in_array(HasUserId::class, $classes)) {
-                    if ($model->user_id == $user->id) {
-                        return true;
-                    }
+                if ($this->hasOwnerTrait($model) && $this->ownsDirectly($user, $model)) {
+                    return true;
                 }
             }
 
@@ -139,6 +131,18 @@ class BaseModelPolicy
      */
     protected function resolveShared($user, Model $model, string $action): bool
     {
+        // The morph-owner steward is inherent even WITHOUT the directory ACL: HasMorphUser ships
+        // steward manage as part of its contract (steward, grants, and owner scoping work for a
+        // morph-owned model everywhere, with no per-package policy class), so its owner needs no
+        // `.own.` token and no HasVisibility opt-in — e.g. beam-rank's Rank, whose owner deletes
+        // their own row with zero tokens. The LEGACY owner traits (HasUser/HasUserId) keep their
+        // historical behavior on non-ACL models: token-gated via the `.own.` rung only.
+        if ($user !== null
+            && in_array(HasMorphUser::class, class_uses_recursive($model), true)
+            && $this->ownsDirectly($user, $model)) {
+            return true;
+        }
+
         if (! in_array(HasVisibility::class, class_uses_recursive($model), true)) {
             return false;
         }
@@ -165,8 +169,42 @@ class BaseModelPolicy
         return app(ReachResolver::class)->grants($model->effectiveVisibility(), $ability, $user);
     }
 
-    /** Whether $user is the record's steward (its HasUserId `user_id` or a HasUser member). */
+    /**
+     * Whether $user is the record's steward (its HasUserId `user_id` or a HasUser member).
+     *
+     * When the model itself carries neither owner trait, falls back to the nearest ancestor
+     * in its {@see HasVisibility::visibilityAncestors()} that does — e.g. a Clip with no
+     * owner column of its own, only `track.project.user_id`. A model that DOES carry an
+     * owner trait is judged on itself only; it never defers to an ancestor's owner even when
+     * they'd differ (self always wins over climbing — ticket 07).
+     */
     protected function isSteward($user, Model $model): bool
+    {
+        if ($this->hasOwnerTrait($model)) {
+            return $this->ownsDirectly($user, $model);
+        }
+
+        foreach ($model->visibilityAncestors() as $ancestor) {
+            if ($this->hasOwnerTrait($ancestor) && $this->ownsDirectly($user, $ancestor)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** Whether $model declares an owner via HasUser, HasMorphUser, or HasUserId. */
+    protected function hasOwnerTrait(Model $model): bool
+    {
+        $classes = class_uses_recursive($model);
+
+        return in_array(HasUser::class, $classes, true)
+            || in_array(HasMorphUser::class, $classes, true)
+            || in_array(HasUserId::class, $classes, true);
+    }
+
+    /** Whether $user is $model's owner per whichever owner trait $model carries. */
+    protected function ownsDirectly($user, Model $model): bool
     {
         $classes = class_uses_recursive($model);
 
@@ -176,11 +214,14 @@ class BaseModelPolicy
             return $model->user->contains('id', $user->id);
         }
 
-        if (in_array(HasUserId::class, $classes, true)) {
-            return $model->user_id == $user->id;
+        if (in_array(HasMorphUser::class, $classes, true)) {
+            // Keys compared as strings: the morph columns are strings so they serve both
+            // uuid- and bigint-keyed hosts (same cast rationale as whereGrantee).
+            return $model->user_type === $user->getMorphClass()
+                && (string) $model->user_id === (string) $user->getKey();
         }
 
-        return false;
+        return $model->user_id == $user->id;
     }
 
     /**
@@ -314,20 +355,17 @@ class BaseModelPolicy
         $table = $instance->getTable();
         $reach = app(ReachResolver::class);
         $tiers = $reach->listableTiers($user);
-        $listedColumn = $hasVisibility ? $instance->visibilityListedColumn() : null;
 
         // The tier-visible sub-query: reach-listable tiers, narrowed to `listed` rows when
-        // the model has a discoverability axis. Empty tier set → matches nothing.
-        $tierBranch = function ($q) use ($table, $tiers, $listedColumn) {
+        // the model has a discoverability axis (column- or visibility-model-sourced — see
+        // HasVisibility::scopeReachableInTiers()). Empty tier set → matches nothing.
+        $tierBranch = function ($q) use ($tiers) {
             if ($tiers === []) {
                 $q->whereRaw('1 = 0');
 
                 return;
             }
-            $q->whereIn("{$table}.visibility", $tiers);
-            if ($listedColumn !== null) {
-                $q->where("{$table}.{$listedColumn}", true);
-            }
+            $q->reachableInTiers($tiers);
         };
 
         // Legacy path: models without the directory ACL keep own-only scoping — and a guest
@@ -341,6 +379,9 @@ class BaseModelPolicy
                     return $query->where('user_id', $user->id);
                 } elseif (in_array(HasUser::class, $classes)) {
                     return $query->whereHas('user', fn ($q) => $q->where('user_id', $user->id));
+                } elseif (in_array(HasMorphUser::class, $classes)) {
+                    return $query->where('user_type', $user->getMorphClass())
+                        ->where('user_id', (string) $user->getAuthIdentifier());
                 }
             }
 
@@ -381,6 +422,9 @@ class BaseModelPolicy
                         $own->where("{$table}.user_id", $user->id);
                     } elseif (in_array(HasUser::class, $classes)) {
                         $own->whereHas('user', fn ($qq) => $qq->where('user_id', $user->id));
+                    } elseif (in_array(HasMorphUser::class, $classes)) {
+                        $own->where("{$table}.user_type", $user->getMorphClass())
+                            ->where("{$table}.user_id", (string) $user->getAuthIdentifier());
                     } else {
                         $own->whereRaw('1 = 0');
                     }

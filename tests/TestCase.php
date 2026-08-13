@@ -10,10 +10,17 @@ use Rushing\PermissionCascade\PermissionCascadeServiceProvider;
 use Rushing\PermissionCascade\Tests\Fixtures\AccessGrant;
 use Rushing\PermissionCascade\Tests\Fixtures\AttributedFolder;
 use Rushing\PermissionCascade\Tests\Fixtures\AttributedNote;
+use Rushing\PermissionCascade\Tests\Fixtures\Crest;
 use Rushing\PermissionCascade\Tests\Fixtures\Gadget;
+use Rushing\PermissionCascade\Tests\Fixtures\Ledger;
+use Rushing\PermissionCascade\Tests\Fixtures\LedgerVisibility;
+use Rushing\PermissionCascade\Tests\Fixtures\LedgerWithOwnVisibilityModel;
 use Rushing\PermissionCascade\Tests\Fixtures\Post;
+use Rushing\PermissionCascade\Tests\Fixtures\Seal;
+use Rushing\PermissionCascade\Tests\Fixtures\Stamp;
 use Rushing\PermissionCascade\Tests\Fixtures\User;
 use Rushing\PermissionCascade\Tests\Fixtures\Vault;
+use Rushing\PermissionCascade\Tests\Fixtures\VaultItem;
 use Rushing\PermissionCascade\Tests\Fixtures\Widget;
 use Spatie\Permission\Models\Role;
 use Spatie\Permission\PermissionServiceProvider;
@@ -29,10 +36,17 @@ abstract class TestCase extends Orchestra
             'widget' => Widget::class,
             'gadget' => Gadget::class,
             'vault' => Vault::class,
+            'vault-item' => VaultItem::class,
+            'ledger' => Ledger::class,
+            'ledger-visibility' => LedgerVisibility::class,
+            'ledger-with-own-visibility-model' => LedgerWithOwnVisibilityModel::class,
             'post' => Post::class,
             'role' => Role::class,
             'attributed-note' => AttributedNote::class,
             'attributed-folder' => AttributedFolder::class,
+            'stamp' => Stamp::class,
+            'seal' => Seal::class,
+            'crest' => Crest::class,
         ]);
 
         $this->createSpatieSchema();
@@ -102,6 +116,33 @@ abstract class TestCase extends Orchestra
             $table->timestamps();
         });
 
+        Schema::create('vault_items', function (Blueprint $table): void {
+            $table->id();
+            $table->string('name')->nullable();
+            $table->unsignedBigInteger('vault_id')->nullable();
+            $table->timestamps();
+        });
+
+        Schema::create('ledgers', function (Blueprint $table): void {
+            $table->id();
+            $table->string('name')->nullable();
+            $table->unsignedBigInteger('user_id')->nullable();
+            $table->unsignedBigInteger('parent_id')->nullable();
+            // Deliberately NO `visibility`/`listed` column — the morph seam under test stores
+            // both off-table via `ledger_visibilities`.
+            $table->timestamps();
+        });
+
+        Schema::create('ledger_visibilities', function (Blueprint $table): void {
+            $table->id();
+            $table->string('reachable_type');
+            $table->unsignedBigInteger('reachable_id');
+            $table->string('tier')->nullable();
+            $table->boolean('listed')->nullable();
+            $table->timestamps();
+            $table->index(['reachable_type', 'reachable_id']);
+        });
+
         Schema::create('posts', function (Blueprint $table): void {
             $table->id();
             $table->string('name')->nullable();
@@ -128,6 +169,34 @@ abstract class TestCase extends Orchestra
             $table->unsignedBigInteger('user_id');
             $table->string('userable_type');
             $table->unsignedBigInteger('userable_id');
+        });
+
+        // HasMorphUser fixtures: string morph-pair owner columns (uuid- and bigint-keyed hosts).
+        Schema::create('stamps', function (Blueprint $table): void {
+            $table->id();
+            $table->string('name')->nullable();
+            $table->string('user_type')->nullable();
+            $table->string('user_id')->nullable();
+            $table->timestamps();
+            $table->index(['user_type', 'user_id']);
+        });
+
+        Schema::create('seals', function (Blueprint $table): void {
+            $table->id();
+            $table->string('name')->nullable();
+            $table->string('user_type')->nullable();
+            $table->string('user_id')->nullable();
+            $table->string('visibility')->nullable();
+            $table->timestamps();
+            $table->index(['user_type', 'user_id']);
+        });
+
+        Schema::create('crests', function (Blueprint $table): void {
+            $table->id();
+            $table->string('name')->nullable();
+            $table->string('user_type')->nullable();
+            $table->string('user_id')->nullable();
+            $table->timestamps();
         });
 
         Schema::create('attributed_notes', function (Blueprint $table): void {

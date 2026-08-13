@@ -27,6 +27,15 @@ return [
     // tier only (the base cascade still works). Example: App\Models\AccessGrant::class.
     'grant_model' => null,
 
+    // The visibility seam — an Eloquent model implementing Contracts\VisibilityRecord (a
+    // `reachable` morph + `tier`, optionally `listed`). The package is model-free here too: it
+    // ships the contract and the resolution logic, not a model, so the host owns the table and
+    // columns. null → HasVisibility falls back to its original column-based behavior (a
+    // `visibility` column on the policied model's own table) — fully backward compatible. Set
+    // this when a host would rather not add a visibility/listed column to every policied
+    // model's own table. Example: App\Models\VisibilityRecord::class.
+    'visibility_model' => null,
+
     // The reach seam (see Contracts\ReachResolver) — the audience-breadth axis of
     // visibility. null → DefaultReachResolver: the historical `tenant`/`platform`
     // vocabulary with no anonymous reach, so behaviour is unchanged. Point this at a
