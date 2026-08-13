@@ -71,6 +71,23 @@ it('allows the morph owner through the own rung and denies a non-owner', functio
         ->and($policy->update($this->actor, $stamp))->toBeFalse();
 });
 
+it('lets the morph owner manage with ZERO tokens even without the directory ACL (inherent steward)', function () {
+    $stamp = Stamp::create([
+        'name' => 's',
+        'user_type' => $this->owner->getMorphClass(),
+        'user_id' => (string) $this->owner->getKey(),
+    ]);
+    $policy = new StampPolicy;
+
+    // No permissions granted to anyone: the morph owner still manages their own row (the
+    // HasMorphUser contract), a non-owner is denied. Legacy traits stay token-gated here.
+    expect($policy->view($this->owner, $stamp))->toBeTrue()
+        ->and($policy->update($this->owner, $stamp))->toBeTrue()
+        ->and($policy->delete($this->owner, $stamp))->toBeTrue()
+        ->and($policy->view($this->actor, $stamp))->toBeFalse()
+        ->and($policy->delete($this->actor, $stamp))->toBeFalse();
+});
+
 // ── the steward rung (directory ACL) ───────────────────────────────────────────────────
 
 it('lets the morph-pair steward manage with zero tokens and denies a non-owner', function () {
