@@ -1,6 +1,6 @@
 <?php
 
-namespace Rushing\PermissionCascade\Support\Facades;
+namespace Rushing\PermissionCascade\Facades;
 
 use Illuminate\Support\Facades\Facade;
 use Rushing\PermissionCascade\Support\PermissionNamer as SupportPermissionNamer;

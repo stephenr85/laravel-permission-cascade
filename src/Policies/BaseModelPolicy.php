@@ -12,7 +12,7 @@ use Rushing\PermissionCascade\Concerns\HasVisibility;
 use Rushing\PermissionCascade\Contracts\AccessGrant;
 use Rushing\PermissionCascade\Contracts\ReachResolver;
 use Rushing\PermissionCascade\Support\CredentialScope;
-use Rushing\PermissionCascade\Support\Facades\PermissionNamer;
+use Rushing\PermissionCascade\Facades\PermissionNamer;
 
 class BaseModelPolicy
 {

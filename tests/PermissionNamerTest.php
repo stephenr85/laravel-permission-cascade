@@ -1,6 +1,6 @@
 <?php
 
-use Rushing\PermissionCascade\Support\Facades\PermissionNamer;
+use Rushing\PermissionCascade\Facades\PermissionNamer;
 use Rushing\PermissionCascade\Tests\Fixtures\Widget;
 
 it('assembles a class-level permission from a model class string', function () {

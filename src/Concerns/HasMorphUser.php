@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Rushing\PermissionCascade\Policies\BaseModelPolicy;
-use Rushing\PermissionCascade\Support\Facades\Ownership;
+use Rushing\PermissionCascade\Facades\Ownership;
 
 /**
  * Single owner via a `user_type`/`user_id` morph pair on the row — sits beside {@see HasUser}

@@ -1,6 +1,6 @@
 <?php
 
-use Rushing\PermissionCascade\Support\Facades\Ownership;
+use Rushing\PermissionCascade\Facades\Ownership;
 use Rushing\PermissionCascade\Tests\Fixtures\AccessGrant;
 use Rushing\PermissionCascade\Tests\Fixtures\Crest;
 use Rushing\PermissionCascade\Tests\Fixtures\Seal;
