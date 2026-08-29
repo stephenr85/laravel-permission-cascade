@@ -82,9 +82,16 @@ class PermissionCascadeServiceProvider extends ServiceProvider
     }
 
     /**
-     * The cascade is teams-first. Unless the host opts out, force spatie into
-     * teams-mode with the configured foreign key (the tenancy-agnostic seam:
-     * 'team_id' on a satellite, 'tenant_id' on the platform).
+     * The cascade is teams-first. Unless the host opts out
+     * (`permission-cascade.manage_spatie_teams` => false, as ~/Herd/audiostud does), force
+     * spatie into teams-mode with the configured foreign key.
+     *
+     * ⚠️ The seam is the VALUE the column holds, not the column name. Measured 2026-08-29
+     * across every root that installs spatie: the column is `team_id` at all of them, the
+     * platform included — what differs is that a tenanted host stores the TENANT key in it.
+     * This docblock used to say "'tenant_id' on the platform", and that sentence was the source
+     * of a fossil that had propagated into the flagship's published `config/permission.php` and
+     * into a beam-accounts docblock. beam-facade 168.
      */
     protected function configureSpatieTeams(): void
     {

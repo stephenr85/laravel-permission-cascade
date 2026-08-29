@@ -7,8 +7,11 @@ return [
     //   'user_model' => fn () => tenancy()->initialized ? TenantUser::class : User::class,
     'user_model' => null,
 
-    // spatie teams-mode foreign key. 'team_id' is the satellite default; a host with a
-    // different tenancy column (e.g. 'tenant_id' on the platform) overrides this.
+    // spatie teams-mode foreign key. 'team_id' everywhere in the estate today, platform
+    // included — a tenanted host stores the TENANT key in that column rather than renaming it.
+    // A host whose schema genuinely names the column something else overrides this; nothing
+    // does. (This comment used to offer 'tenant_id' as the platform's value: it never was.
+    // beam-facade 168.)
     'team_foreign_key' => 'team_id',
 
     // When true, the provider forces spatie into teams-mode using team_foreign_key.
