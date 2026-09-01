@@ -2,6 +2,7 @@
 
 use Illuminate\Support\Facades\Gate;
 use Rushing\PermissionCascade\Support\CascadePolicyRegistrar;
+use Rushing\PermissionCascade\Tests\Fixtures\AttributedBadge;
 use Rushing\PermissionCascade\Tests\Fixtures\AttributedFolder;
 use Rushing\PermissionCascade\Tests\Fixtures\AttributedNote;
 use Rushing\PermissionCascade\Tests\Fixtures\User;
@@ -56,4 +57,11 @@ it('discovers every attributed model under a directory and skips the rest', func
 
     expect($found)->toContain(AttributedNote::class, AttributedFolder::class)
         ->and($found)->not->toContain(Widget::class);
+});
+
+it('refuses an override naming an ability the configured policy cannot answer', function () {
+    // Before 2026-09-01 this registered happily and the `publish` override was served by `__call()`,
+    // which is exactly the magic method that made the policy shadow every host `Gate::define()`.
+    expect(fn () => CascadePolicyRegistrar::register(AttributedBadge::class))
+        ->toThrow(LogicException::class, 'publish');
 });

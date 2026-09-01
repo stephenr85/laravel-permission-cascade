@@ -46,6 +46,28 @@ class CascadePolicyRegistrar
             );
         }
 
+        // An override naming an ability ConfiguredModelPolicy has no method for could never have
+        // fired, and until 2026-09-01 it did worse than nothing: the `__call()` that served it made
+        // `is_callable()` true for EVERY ability name, so the policy won Gate resolution for abilities
+        // it had never heard of and denied them, shadowing the host's `Gate::define()`. The magic
+        // method is gone; refusing the override that depended on it keeps the removal honest rather
+        // than turning a declared `true` into a silent no-op.
+        //
+        // This is a grammar fault, not a host fact — the attribute's author could have gotten it right
+        // without knowing which host would load the model — so it throws, like the `$policy` check
+        // above. Measured 2026-09-01: zero declarations estate-wide name a non-standard ability
+        // (all 20 use only `create` and `update`), so nothing that exists today can trip it.
+        $unknown = array_diff(array_keys($attribute->overrides), ConfiguredModelPolicy::STANDARD_ABILITIES);
+
+        if ($unknown !== []) {
+            throw new LogicException(
+                "UseCascadePolicy on {$modelClass}: override(s) ".implode(', ', $unknown)
+                .' name no ability '.ConfiguredModelPolicy::class.' can answer. Overrides are limited to '
+                .implode(', ', ConfiguredModelPolicy::STANDARD_ABILITIES)
+                .'; a custom ability belongs in a Gate::define(), which the policy no longer shadows.'
+            );
+        }
+
         $key = 'permission-cascade-policy:'.$modelClass;
 
         app()->bind($key, fn () => new ConfiguredModelPolicy($modelClass, $attribute->overrides));
