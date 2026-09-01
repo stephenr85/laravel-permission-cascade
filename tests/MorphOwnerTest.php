@@ -157,6 +157,40 @@ it('scopes to morph-owned rows through the directory-ACL own branch with own.vie
     expect($ids)->toBe([$mine->id]);
 });
 
+it('scopes to morph-owned rows through the legacy path with ZERO tokens (inherent owner)', function () {
+    // No `.own.view` granted to anyone: the morph owner's own rows are still in scope, the
+    // non-owner's are not, and a non-owner with no token sees nothing. Mirrors the inherent
+    // steward ruling on the per-record plane (resolveShared) — the two planes must agree, or an
+    // op that resolves its subject through the row scope 404s the owner (beam-rank ticket 07).
+    $mine = Stamp::create([
+        'name' => 'mine',
+        'user_type' => $this->owner->getMorphClass(), 'user_id' => (string) $this->owner->getKey(),
+    ]);
+    Stamp::create([
+        'name' => 'theirs',
+        'user_type' => $this->actor->getMorphClass(), 'user_id' => (string) $this->actor->getKey(),
+    ]);
+
+    $ids = (new StampPolicy)->scopeForUser(Stamp::query(), $this->owner)->pluck('id')->all();
+
+    expect($ids)->toBe([$mine->id]);
+});
+
+it('scopes to morph-owned rows through the directory-ACL own branch with ZERO tokens (inherent owner)', function () {
+    $mine = Seal::create([
+        'name' => 'mine', 'visibility' => 'private',
+        'user_type' => $this->owner->getMorphClass(), 'user_id' => (string) $this->owner->getKey(),
+    ]);
+    Seal::create([
+        'name' => 'theirs', 'visibility' => 'private',
+        'user_type' => $this->actor->getMorphClass(), 'user_id' => (string) $this->actor->getKey(),
+    ]);
+
+    $ids = (new SealPolicy)->scopeForUser(Seal::query(), $this->owner)->pluck('id')->all();
+
+    expect($ids)->toBe([$mine->id]);
+});
+
 // ── the blessed write path ─────────────────────────────────────────────────────────────
 
 it('assigns ownership via the facade on a model without the trait', function () {

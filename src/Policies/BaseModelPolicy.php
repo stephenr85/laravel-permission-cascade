@@ -11,8 +11,8 @@ use Rushing\PermissionCascade\Concerns\HasUserId;
 use Rushing\PermissionCascade\Concerns\HasVisibility;
 use Rushing\PermissionCascade\Contracts\AccessGrant;
 use Rushing\PermissionCascade\Contracts\ReachResolver;
-use Rushing\PermissionCascade\Support\CredentialScope;
 use Rushing\PermissionCascade\Facades\PermissionNamer;
+use Rushing\PermissionCascade\Support\CredentialScope;
 
 class BaseModelPolicy
 {
@@ -340,7 +340,8 @@ class BaseModelPolicy
 
     /**
      * Scope a query to only include records the viewer is authorized to view.
-     * Model.view = all records, Model.own.view = only the viewer's records, plus the
+     * Model.view = all records, Model.own.view = only the viewer's records (a HasMorphUser
+     * owner's own rows are in scope without that token — see below), plus the
      * reach-listable tiers (resolved by the bound {@see ReachResolver}) and direct
      * allow-grants, minus direct deny-grants. `$user` may be null (an anonymous viewer):
      * a guest sees only the tiers the resolver lists for a null viewer, and only rows
@@ -374,18 +375,30 @@ class BaseModelPolicy
             $q->reachableInTiers($tiers);
         };
 
+        // The morph owner's own rows are in scope INHERENTLY — no `.own.view` token — on both
+        // paths below, mirroring resolveShared(): HasMorphUser ships owner authority as part of
+        // its contract, and a row scope that hides the owner's own row from them contradicts the
+        // per-record plane (an op resolving its subject through the row scope would 404 the
+        // owner — beam-rank ticket 07). The LEGACY owner traits (HasUser/HasUserId) stay
+        // token-gated here, exactly as CascadeResolutionTest locks.
+        $isMorphOwned = in_array(HasMorphUser::class, $classes, true);
+        $ownsPermitted = $user !== null && (
+            $isMorphOwned
+            || $this->permits($user, PermissionNamer::assemble($modelClass, 'own', 'view'))
+        );
+
         // Legacy path: models without the directory ACL keep own-only scoping — and a guest
         // sees nothing, since there is no reach axis to widen to.
         if (! $hasVisibility) {
             if ($user === null) {
                 return $query->whereRaw('1 = 0');
             }
-            if ($this->permits($user, PermissionNamer::assemble($modelClass, 'own', 'view'))) {
+            if ($ownsPermitted) {
                 if (in_array(HasUserId::class, $classes)) {
                     return $query->where('user_id', $user->id);
                 } elseif (in_array(HasUser::class, $classes)) {
                     return $query->whereHas('user', fn ($q) => $q->where('user_id', $user->id));
-                } elseif (in_array(HasMorphUser::class, $classes)) {
+                } elseif ($isMorphOwned) {
                     return $query->where('user_type', $user->getMorphClass())
                         ->where('user_id', (string) $user->getAuthIdentifier());
                 }
@@ -403,7 +416,6 @@ class BaseModelPolicy
         // Directory-ACL path: own ∪ (tier-visible ∪ direct allow-grants) − direct deny-grants.
         // Steward (own) is non-deniable, so denies subtract only from the shared branch.
         $morph = $instance->getMorphClass();
-        $ownsPermitted = $this->permits($user, PermissionNamer::assemble($modelClass, 'own', 'view'));
         $allowedIds = $this->grantedGrantableIds($morph, $user, AccessGrant::EFFECT_ALLOW);
         $deniedIds = $this->grantedGrantableIds($morph, $user, AccessGrant::EFFECT_DENY);
 
