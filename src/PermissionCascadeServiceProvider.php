@@ -83,8 +83,36 @@ class PermissionCascadeServiceProvider extends ServiceProvider
 
     /**
      * The cascade is teams-first. Unless the host opts out
-     * (`permission-cascade.manage_spatie_teams` => false, as ~/Herd/audiostud does), force
-     * spatie into teams-mode with the configured foreign key.
+     * (`permission-cascade.manage_spatie_teams` => false, as ~/Herd/audiostud, ~/Herd/thingsontv
+     * and ~/Herd/standwell do), force spatie into teams-mode with the configured foreign key.
+     *
+     * ⚠️ Forcing is only a DEFECT where the host cannot satisfy it, and the estate was swept for
+     * that on 2026-09-03 rather than assumed. Fifteen roots install this package (resolved with
+     * `pwd -P`; three of them — beam/satellite/tower — are Herd symlinks onto starters, and
+     * beam-pilot-gcp-cloud-run vendors a frozen copy that carries this method all the same).
+     * Three opt out; twelve resolve `config('permission.teams') === true` at runtime, asked of the
+     * booted container rather than read off `config/permission-cascade.php` — the flagship's copy
+     * of that file omits the key entirely and so takes this default deliberately.
+     *
+     * **None of the twelve is broken.** The discriminator is the live pivot, not the migration:
+     *   - eight have `model_has_roles.team_id` NULLABLE (the beam-accounts stub), so a team-less
+     *     `assignRole()` writes NULL and reads back — probed in a rolled-back transaction at
+     *     beam, satellite, tower, schemastud, splicewire, splicewire-app (central and three tenant
+     *     schemas);
+     *   - fable and numero have it NOT NULL (spatie's own stub under `key_type => 'int'`). A
+     *     team-less assign there DOES fail — but neither host has a team-less path: every
+     *     assignment goes through beam-accounts' `TeamProvisioner`/`TeamMembers`, which set the
+     *     registrar's team id first. Proven by running each host's own
+     *     `CreatesNewUsers` action in a rolled-back transaction: numero provisions team 4 and
+     *     writes `team_id`, fable assigns no role at all. Both are teams hosts by intent;
+     *   - calcucrypt, entreport, stephenrushing and beam-pilot-gcp-cloud-run have NO permission
+     *     tables and no permission migration to run, so the forced config key is inert there.
+     *     (entreport and stephenrushing are broken by an unrelated users-table drift —
+     *     satellite-runbook mobile-responsive-sweep 11 — not by this.)
+     *
+     * The failure this forcing produces, when it produces one, is `Unknown column
+     * 'model_has_roles.team_id'` (schema created while teams was off) or `Column 'team_id' cannot
+     * be null` (created after, never populated). Both present as anything but a config problem.
      *
      * ⚠️ The seam is the VALUE the column holds, not the column name. Measured 2026-08-29
      * across every root that installs spatie: the column is `team_id` at all of them, the
