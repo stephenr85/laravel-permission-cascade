@@ -68,6 +68,11 @@ class BaseModelPolicy
             $model = null;
         } else {
             $modelClass = get_class($model);
+            // A prototype may use class authority, but has no persisted instance, owner or ACL.
+            // Assigned keys and loaded relations do not make an unsaved model authoritative.
+            if (! $model->exists) {
+                $model = null;
+            }
         }
 
         // An anonymous (null) principal holds no permission tokens, so every token rung
