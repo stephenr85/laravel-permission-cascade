@@ -19,6 +19,11 @@ conventions with a configurable team foreign key.
 `scopeForUser($query, $user)` is the listing counterpart of rung 4: `own ∪ (reach-listable
 tiers ∪ direct allow-grants) − direct deny-grants`.
 
+A policy class that implements `Contracts\GrantedExplicitly` marks its tokens as reserved. A
+consumer that derives role grants from the Gate's policy map (for example, beam-accounts'
+`RolePermissions`) must skip that model, so only a grant that names it explicitly can hand out its
+tokens. With no such grant, the host's `Gate::before` superuser is the only principal that passes.
+
 ## Visibility: two orthogonal axes
 
 Visibility is **not** a single ladder. `HasVisibility` models two independent axes plus the
