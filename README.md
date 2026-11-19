@@ -75,9 +75,39 @@ the feed."* Off by default (no listed column ⇒ every row is listed).
 Deny-capable `Grant` rows (grantable morph → grantee user/role, ability `view|manage`, effect
 `allow|deny`; nearest-wins, deny beats allow, `manage ⊇ view`). Orthogonal to both axes.
 
+## A scoped credential fails closed
+
+A host binds a `CredentialScopeResolver` (beam-accounts binds one from the acting Sanctum token's abilities) and
+registers `Authorization\CredentialScopeGate::before()` as its first `Gate::before` (beam does this for every beam
+host). Then, for the request's authenticated principal acting with a scoped credential, **every** Gate decision is
+"the principal may AND the token carries the decision's name" (fleet ADR 0006, `rushing/splicewire-beam-runbook`
+`docs/adr/0006-a-credential-scope-fails-closed-and-machine-tokens-are-never-unscoped.md`, amending the flagship's
+ADR-0109). A decision's name is, first match wins:
+
+1. a flat permission name (`declarations.check`, `tenant:provision`): itself;
+2. a name registered in `Authorization\DecisionNames` (`->name('reviewMarketListing', 'reviewMarketListing')`, per
+   subject class or for every subject) or listed in `config('permission-cascade.decision_names')`;
+3. the names the subject's policy declares through `Contracts\NamesDecisions` (`BaseModelPolicy` names every rung:
+   `{model}.{action}`, `{model}.{id}.{action}`, `{model}.own.{action}`, `{model}.shared.{action}`; `viewAny` lists
+   by `view`);
+4. the derivation for a verb on a model subject: `{model}.{verb}` and `{model}.{id}.{verb}` (the verb as written and
+   kebab-cased). Membership, ownership, participant and seller arms are named this way: they are policy verbs.
+
+A decision with no name (a subjectless `Gate::define` nobody registered, a policy over a subject that is no model) is
+refused with code `credential_scope_unnamed_decision`; a name the token lacks with `credential_scope_name_not_carried`.
+Both are a 403 (`Authorization\CredentialScopeRefused`, rendering `{message, code}` as JSON); `Gate::allows()` answers
+false. Inside `BaseModelPolicy` the rungs that ask no permission (the steward, the morph owner, explicit grants, the
+reach tier) answer a scoped credential only when it carries the action's or the rung's name. The listing scope
+(`scopeForUser()`) is a query scope, not a Gate decision, and is not narrowed yet.
+
+Unchanged: a session, a `*` token, a guest, a check for another principal, and the entitlement plane
+(`entitlement:{key}`), which is answered principal-only, permissions its definition asks included. A host's allow-all
+before (a Root) answers through `CredentialScopeGate::superuser()`, and a Root arm inside a policy through
+`superuserMay()`: under a scope a superuser grant holds only for a name the token carries.
+
 ## Config
 
-See `config/permission-cascade.php`: `reach_resolver`, `credential_scope_resolver`,
+See `config/permission-cascade.php`: `reach_resolver`, `credential_scope_resolver`, `decision_names`,
 `platform_admin_permission`, `team_foreign_key`, `manage_spatie_teams`, `user_model`.
 
 ## Testing

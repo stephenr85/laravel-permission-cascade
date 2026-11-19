@@ -3,6 +3,8 @@
 namespace Rushing\PermissionCascade;
 
 use Illuminate\Support\ServiceProvider;
+use Rushing\PermissionCascade\Authorization\CredentialScopeGate;
+use Rushing\PermissionCascade\Authorization\DecisionNames;
 use Rushing\PermissionCascade\Contracts\CredentialScopeResolver;
 use Rushing\PermissionCascade\Contracts\EntitlementResolver;
 use Rushing\PermissionCascade\Contracts\ReachResolver;
@@ -18,6 +20,12 @@ class PermissionCascadeServiceProvider extends ServiceProvider
         $this->mergeConfigFrom(__DIR__.'/../config/permission-cascade.php', 'permission-cascade');
 
         $this->app->singleton(PermissionNamer::class, fn () => new PermissionNamer);
+
+        // Fleet ADR 0006: a scoped credential fails closed. The decision-name registry is one per
+        // app (packages register their names in their own providers); the gate is stateless and
+        // registered as the first `Gate::before` by the host's composition (beam does it).
+        $this->app->singleton(DecisionNames::class);
+        $this->app->bind(CredentialScopeGate::class);
 
         // The credential-scope seam. Defaults to unscoped (NullCredentialScopeResolver),
         // so authorization is unchanged until a host binds a narrowing resolver — either

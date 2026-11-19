@@ -10,11 +10,20 @@ use Rushing\PermissionCascade\Concerns\HasUser;
 use Rushing\PermissionCascade\Concerns\HasUserId;
 use Rushing\PermissionCascade\Concerns\HasVisibility;
 use Rushing\PermissionCascade\Contracts\AccessGrant;
+use Rushing\PermissionCascade\Contracts\NamesDecisions;
 use Rushing\PermissionCascade\Contracts\ReachResolver;
 use Rushing\PermissionCascade\Facades\PermissionNamer;
 use Rushing\PermissionCascade\Support\CredentialScope;
 
-class BaseModelPolicy
+/**
+ * The cascade's model policy. It also names its decisions for a scoped credential ({@see NamesDecisions}; fleet ADR
+ * 0006): a verb is admitted by the names of its rungs (`{model}.{action}`, `{model}.{id}.{action}`,
+ * `{model}.own.{action}`, `{model}.shared.{action}`), and the rungs that ask no permission (the steward, explicit
+ * grants, the reach tier, and the morph owner's inherent authority) answer a scoped credential only when it carries
+ * that rung's name or the action's own. The listing scope ({@see scopeForUser()}) is a query scope, not a Gate
+ * decision, and is not narrowed here (credential-scope 05; tower's `ThreadPolicy` copies its directory-ACL half).
+ */
+class BaseModelPolicy implements NamesDecisions
 {
     use HandlesAuthorization;
 
@@ -48,6 +57,75 @@ class BaseModelPolicy
     {
         return $user->can($permission)
             && app(CredentialScope::class)->permits($permission);
+    }
+
+    /** The cascade's own verbs and the action each one checks (`viewAny` lists by `view`). */
+    protected const CASCADE_ACTIONS = [
+        'viewAny' => 'view',
+        'view' => 'view',
+        'create' => 'create',
+        'update' => 'update',
+        'delete' => 'delete',
+        'restore' => 'restore',
+        'forceDelete' => 'force-delete',
+    ];
+
+    /**
+     * The names that admit one of the cascade's verbs for a scoped credential: every rung's name. A verb a subclass
+     * adds is left to the cascade's derivation (null).
+     *
+     * @param  array<int, mixed>  $arguments
+     * @return list<string>|null
+     */
+    public function decisionNames(string $ability, array $arguments): ?array
+    {
+        $action = static::CASCADE_ACTIONS[$ability] ?? null;
+        if ($action === null) {
+            return null;
+        }
+
+        $subject = $arguments[0] ?? null;
+        $class = $subject instanceof Model ? get_class($subject) : (is_string($subject) && is_subclass_of($subject, Model::class) ? $subject : $this->policedModelClass());
+
+        $names = [
+            PermissionNamer::assemble($class, $action),
+            PermissionNamer::assemble($class, 'own', $action),
+        ];
+
+        if ($subject instanceof Model && $subject->exists) {
+            $names[] = PermissionNamer::assemble($subject, $action);
+            $names[] = PermissionNamer::assemble($class, 'shared', $action);
+        }
+
+        return $names;
+    }
+
+    /**
+     * Whether a rung that asks no permission may answer under the acting credential's scope: unscoped, always; scoped,
+     * only when the scope carries the action's name (`{model}.{action}`, `{model}.{id}.{action}`) or the rung's own
+     * (`{model}.own.{action}` for the steward and the morph owner, `{model}.shared.{action}` for grants and the reach
+     * tier). Fleet ADR 0006 C2: an ownership or membership decision is narrowed like any other.
+     */
+    protected function scopeAdmitsRung(Model|string $model, string $action, string $rung): bool
+    {
+        $scope = app(CredentialScope::class);
+        if (! $scope->isScoped()) {
+            return true;
+        }
+
+        $class = is_string($model) ? $model : get_class($model);
+        $names = [PermissionNamer::assemble($class, $action), PermissionNamer::assemble($class, $rung, $action)];
+        if ($model instanceof Model && $model->exists) {
+            $names[] = PermissionNamer::assemble($model, $action);
+        }
+
+        foreach ($names as $name) {
+            if ($scope->permits($name)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -144,7 +222,8 @@ class BaseModelPolicy
         // historical behavior on non-ACL models: token-gated via the `.own.` rung only.
         if ($user !== null
             && in_array(HasMorphUser::class, class_uses_recursive($model), true)
-            && $this->ownsDirectly($user, $model)) {
+            && $this->ownsDirectly($user, $model)
+            && $this->scopeAdmitsRung($model, $action, 'own')) {
             return true;
         }
 
@@ -156,9 +235,16 @@ class BaseModelPolicy
 
         // Rules 1–2 require an identified principal; an anonymous viewer skips to the tier.
         if ($user !== null) {
-            // Rule 1 — steward is inherent and non-deniable (checked before any grant).
-            if ($this->isSteward($user, $model)) {
+            // Rule 1 — steward is inherent and non-deniable (checked before any grant). Under a scoped
+            // credential it answers only for a token carrying the action's or the `.own.` rung's name.
+            if ($this->isSteward($user, $model) && $this->scopeAdmitsRung($model, $action, 'own')) {
                 return true;
+            }
+
+            // Rules 2–3 under a scoped credential: only for a token carrying the action's or the
+            // `.shared.` rung's name (fleet ADR 0006 C2).
+            if (! $this->scopeAdmitsRung($model, $action, 'shared')) {
+                return false;
             }
 
             // Rule 2 — nearest explicit grant (deny beats allow at a level).

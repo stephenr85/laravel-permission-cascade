@@ -55,6 +55,12 @@ return [
     // instead rebind the contract in the container directly.
     'credential_scope_resolver' => null,
 
+    // Explicit decision names for a scoped credential (fleet ADR 0006; Authorization\DecisionNames).
+    // Under a scoped credential every Gate decision must resolve to a name the token carries; a
+    // decision with no model subject (`Gate::define('viewPulse', …)`) has no derivable name and is
+    // refused unless named here or registered by the package that owns it. `ability => name|list`.
+    'decision_names' => [],
+
     // The entitlement seam (see Contracts\EntitlementResolver) — the feature-access axis,
     // orthogonal to the per-action cascade and to reach. null → NullEntitlementResolver: every
     // principal holds the empty set, so an unbound host is entitled to nothing and behaviour is
