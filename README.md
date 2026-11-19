@@ -89,7 +89,8 @@ ADR-0109). A decision's name is, first match wins:
    subject class or for every subject) or listed in `config('permission-cascade.decision_names')`;
 3. the names the subject's policy declares through `Contracts\NamesDecisions` (`BaseModelPolicy` names every rung:
    `{model}.{action}`, `{model}.{id}.{action}`, `{model}.own.{action}`, `{model}.shared.{action}`; `viewAny` lists
-   by `view`);
+   by `view`; only while the cascade's own verb method and rung machinery run: a verb a subclass overrides, or a
+   `ConfiguredModelPolicy` verb answered by an override, falls through to the derivation);
 4. the derivation for a verb on a model subject: `{model}.{verb}` and `{model}.{id}.{verb}` (the verb as written and
    kebab-cased). Membership, ownership, participant and seller arms are named this way: they are policy verbs.
 
