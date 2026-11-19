@@ -61,6 +61,31 @@ class ConfiguredModelPolicy extends BaseModelPolicy
         $this->modelClass = $modelClass;
     }
 
+    /**
+     * A configured verb runs the cascade's rungs only when no override answers it and no subclass replaced the method
+     * (beam-accounts `InvitationPolicy` replaces `create` and `delete`): an override or a replacement is named by the
+     * cascade's derivation instead (fleet ADR 0006).
+     */
+    protected function runsCascadeRungs(string $ability): bool
+    {
+        if (($this->overrides[$ability] ?? null) !== null) {
+            return false;
+        }
+
+        if (! method_exists($this, $ability)
+            || (new \ReflectionMethod($this, $ability))->getDeclaringClass()->getName() !== self::class) {
+            return false;
+        }
+
+        foreach (static::RUNG_METHODS as $method) {
+            if (! $this->declaredByCascade($method)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     public function viewAny(Authenticatable $user)
     {
         return $this->overrides['viewAny'] ?? parent::viewAny($user);

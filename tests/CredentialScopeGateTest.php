@@ -8,6 +8,7 @@ use Rushing\PermissionCascade\Authorization\CredentialScopeGate;
 use Rushing\PermissionCascade\Authorization\CredentialScopeRefusal;
 use Rushing\PermissionCascade\Authorization\CredentialScopeRefused;
 use Rushing\PermissionCascade\Authorization\DecisionNames;
+use Rushing\PermissionCascade\Policies\ConfiguredModelPolicy;
 use Rushing\PermissionCascade\Tests\Fixtures\AccessGrant;
 use Rushing\PermissionCascade\Tests\Fixtures\Post;
 use Rushing\PermissionCascade\Tests\Fixtures\PostPolicy;
@@ -241,6 +242,47 @@ it('names a cascade verb through its rungs and viewAny through view', function (
         ->and(app(CredentialScopeGate::class)->namesFor('rebootFleet'))->toBe([]);
 });
 
+it('names an overridden cascade verb by its derived names only, never by the rungs it no longer runs', function () {
+    // codex cs02 (blocking 1): a subclass that overrides `view` (tower ConduitPolicy admits any authenticated user)
+    // must not inherit `.own.` / `.shared.` names for it; the verbs it keeps still carry every rung name.
+    Gate::policy(Post::class, ScopedOpenPostPolicy::class);
+    $this->actingAs($this->member);
+    $foreign = Post::create(['name' => 'foreign', 'user_id' => $this->other->id, 'visibility' => 'private']);
+
+    bindScope(null);
+    expect(Gate::allows('view', $foreign))->toBeTrue();
+
+    foreach (['post.own.view', 'post.shared.view'] as $rung) {
+        bindScope([$rung]);
+        expect(Gate::inspect('view', $foreign)->code())->toBe(CredentialScopeRefusal::NOT_CARRIED);
+    }
+    bindScope(['post.view']);
+    expect(Gate::allows('view', $foreign))->toBeTrue();
+
+    expect((new ScopedOpenPostPolicy)->decisionNames('view', [$foreign]))->toBeNull()
+        ->and((new ScopedOpenPostPolicy)->decisionNames('update', [$foreign]))->toContain('post.own.update', 'post.shared.update');
+});
+
+it('names a configured verb answered by an override, or replaced by a subclass, by its derived names only', function () {
+    $widget = Widget::create(['name' => 'w']);
+
+    $configured = new ConfiguredModelPolicy(Widget::class, ['view' => true]);
+    expect($configured->decisionNames('view', [$widget]))->toBeNull()
+        ->and($configured->decisionNames('update', [$widget]))->toContain('widget.own.update');
+
+    $replaced = new ScopedReplacedConfiguredPolicy(Widget::class);
+    expect($replaced->decisionNames('create', [Widget::class]))->toBeNull()
+        ->and($replaced->decisionNames('delete', [$widget]))->toContain('widget.own.delete');
+
+    // Through the Gate: the override answers `true`, and a rung name no longer reaches it.
+    Gate::policy(Widget::class, ScopedViewOverrideWidgetPolicy::class);
+    $this->actingAs($this->member);
+    bindScope(['widget.own.view']);
+    expect(Gate::allows('view', $widget))->toBeFalse();
+    bindScope(['widget.view']);
+    expect(Gate::allows('view', $widget))->toBeTrue();
+});
+
 // ── C3: a superuser grant is narrowed ───────────────────────────────────────────────────
 
 it('does not carry a scoped superuser past a decision whose name the token lacks', function () {
@@ -392,5 +434,32 @@ class ScopedGadgetPolicy
     public function approve(User $user, ScopedGadget $gadget): bool
     {
         return $user->can('widgets.approve');
+    }
+}
+
+/** Overrides `view` the way tower ConduitPolicy does: any authenticated user, no rung checked. */
+class ScopedOpenPostPolicy extends PostPolicy
+{
+    public function view(?Illuminate\Contracts\Auth\Authenticatable $user, Model $instance)
+    {
+        return $user !== null;
+    }
+}
+
+/** Replaces a configured verb (as beam-accounts InvitationPolicy replaces create and delete). */
+class ScopedReplacedConfiguredPolicy extends ConfiguredModelPolicy
+{
+    public function create(Illuminate\Contracts\Auth\Authenticatable $user)
+    {
+        return true;
+    }
+}
+
+/** A configured policy whose `view` is an unconditional override (#[UseCascadePolicy(view: true)]). */
+class ScopedViewOverrideWidgetPolicy extends ConfiguredModelPolicy
+{
+    public function __construct()
+    {
+        parent::__construct(Widget::class, ['view' => true]);
     }
 }

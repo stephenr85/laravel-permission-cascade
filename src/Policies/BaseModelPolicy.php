@@ -70,9 +70,15 @@ class BaseModelPolicy implements NamesDecisions
         'forceDelete' => 'force-delete',
     ];
 
+    /** The rung machinery a cascade verb runs; a subclass overriding any of it no longer runs the rungs named here. */
+    protected const RUNG_METHODS = ['canCascade', 'resolveShared', 'isSteward', 'ownsDirectly', 'hasOwnerTrait', 'permits', 'grantDecisionAt'];
+
     /**
-     * The names that admit one of the cascade's verbs for a scoped credential: every rung's name. A verb a subclass
-     * adds is left to the cascade's derivation (null).
+     * The names that admit one of the cascade's verbs for a scoped credential: every rung's name, but only while the
+     * method that runs is this class's own rung resolution ({@see runsCascadeRungs()}). A verb a subclass adds, and a
+     * standard verb a subclass overrides (tower `ConduitPolicy::view` admits every authenticated user and checks no
+     * `.own.` or `.shared.` rung), is left to the cascade's derivation (null): `{model}.{verb}` / `{model}.{id}.{verb}`.
+     * A subclass that overrides a verb and does enforce narrower rungs declares them itself by overriding this method.
      *
      * @param  array<int, mixed>  $arguments
      * @return list<string>|null
@@ -80,7 +86,7 @@ class BaseModelPolicy implements NamesDecisions
     public function decisionNames(string $ability, array $arguments): ?array
     {
         $action = static::CASCADE_ACTIONS[$ability] ?? null;
-        if ($action === null) {
+        if ($action === null || ! $this->runsCascadeRungs($ability)) {
             return null;
         }
 
@@ -98,6 +104,26 @@ class BaseModelPolicy implements NamesDecisions
         }
 
         return $names;
+    }
+
+    /**
+     * Whether checking `$ability` on this policy runs the cascade's own rungs: the verb's method and the rung machinery
+     * are declared by the cascade, not overridden by a subclass.
+     */
+    protected function runsCascadeRungs(string $ability): bool
+    {
+        return $this->declaredByCascade($ability) && array_reduce(
+            static::RUNG_METHODS,
+            fn (bool $carry, string $method) => $carry && $this->declaredByCascade($method),
+            true,
+        );
+    }
+
+    /** Whether `$method` on this instance is declared by `BaseModelPolicy` itself. */
+    protected function declaredByCascade(string $method): bool
+    {
+        return method_exists($this, $method)
+            && (new \ReflectionMethod($this, $method))->getDeclaringClass()->getName() === self::class;
     }
 
     /**
