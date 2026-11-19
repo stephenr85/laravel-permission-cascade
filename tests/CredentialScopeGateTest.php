@@ -223,6 +223,9 @@ it('narrows the morph owner\'s inherent authority', function () {
     expect(Gate::allows('delete', $seal))->toBeFalse();
     bindScope(['seal.own.view']);
     expect(Gate::allows('delete', $seal))->toBeFalse();
+    // `.shared.` admits the decision but names only the grant and tier rungs: the owner's inherent arm stays refused.
+    bindScope(['seal.shared.delete']);
+    expect(Gate::allows('delete', $seal))->toBeFalse();
     bindScope(['seal.own.delete']);
     expect(Gate::allows('delete', $seal))->toBeTrue();
 });
