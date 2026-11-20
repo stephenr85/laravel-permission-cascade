@@ -24,6 +24,9 @@ class DecisionNames
     /** @var array<string, array<string, list<string>|Closure>> ability => subject class ('' for any) => names */
     protected array $names = [];
 
+    /** @var list<list<string>|Closure(): iterable<string>> names offered to the widest set without naming a decision */
+    protected array $offered = [];
+
     /**
      * Name `$ability` (for `$subject`, a class the check's first argument is or is an instance of; null for any).
      *
@@ -75,15 +78,39 @@ class DecisionNames
     }
 
     /**
-     * Every name registered as a list, here or in `config('permission-cascade.decision_names')`, for the widest set a
-     * token may be scoped to (fleet ADR 0006, "Everything I hold"; credential-scope 04). A name registered as a closure
-     * is skipped: it names one call's arguments (a record, a team), so it has no class-level name to offer.
+     * Offer class-level names to the widest set a token may be scoped to without registering them for any Gate ability
+     * (credential-scope 07): the names a check made OUTSIDE the Gate asks through
+     * {@see CredentialScopeGate::authorizeCarried()} or {@see CredentialScopeGate::carries()} with explicit names, and
+     * names a registry produces only after boot (beam's `{resource}.view` for every particle resource). A closure is
+     * read each time {@see registered()} is, so a name registered later is still offered. Offering never grants: the
+     * principal half of the decision still applies.
+     *
+     * @param  string|list<string>|Closure(): iterable<string>  $names
+     */
+    public function offer(string|array|Closure $names): static
+    {
+        $this->offered[] = $names instanceof Closure ? $names : array_values((array) $names);
+
+        return $this;
+    }
+
+    /**
+     * Every name registered as a list, here or in `config('permission-cascade.decision_names')`, plus every name
+     * {@see offer()}ed, for the widest set a token may be scoped to (fleet ADR 0006, "Everything I hold"; credential-scope
+     * 04, 07). A name registered as a closure is skipped: it names one call's arguments (a record, a team), so it has no
+     * class-level name to offer.
      *
      * @return list<string>
      */
     public function registered(): array
     {
         $names = [];
+
+        foreach ($this->offered as $offered) {
+            foreach ($offered instanceof Closure ? $offered() : $offered as $name) {
+                $names[] = $name;
+            }
+        }
 
         foreach ($this->names as $entries) {
             foreach ($entries as $candidate) {

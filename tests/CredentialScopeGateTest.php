@@ -306,6 +306,19 @@ it('names a configured verb answered by an override, or replaced by a subclass, 
 
 // ── the names a widest token may carry (credential-scope 04) ──────────────────────────────
 
+it('offers a name offered outside the Gate, read lazily, without naming any decision by it (credential-scope 07)', function () {
+    $late = [];
+    app(DecisionNames::class)->offer(['passkey.view', 'passkey.update']);
+    app(DecisionNames::class)->offer(function () use (&$late) {
+        return $late;
+    });
+    $late = ['rules.view'];
+
+    expect(app(CredentialScopeGate::class)->offerableNames())->toContain('passkey.view', 'passkey.update', 'rules.view')
+        ->and(app(DecisionNames::class)->for('passkey.view', []))->toBeNull()
+        ->and(app(DecisionNames::class)->registeredFor('view'))->toBe([]);
+});
+
 it('offers every registered name and each policy verb\'s class-level names, never a per-record name or a closure\'s', function () {
     app(DecisionNames::class)->name('join', fn (array $arguments) => ['team.'.$arguments[0]->getKey().'.join']);
     config(['permission-cascade.decision_names' => ['viewPulse' => 'pulse.view']]);
