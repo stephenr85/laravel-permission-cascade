@@ -286,9 +286,10 @@ it('names a configured verb answered by an override, or replaced by a subclass, 
 // ── the names a widest token may carry (credential-scope 04) ──────────────────────────────
 
 it('offers every registered name and each policy verb\'s class-level names, never a per-record name or a closure\'s', function () {
-    app(DecisionNames::class)->name('rebootFleet', 'fleet.reboot');
     app(DecisionNames::class)->name('join', fn (array $arguments) => ['team.'.$arguments[0]->getKey().'.join']);
     config(['permission-cascade.decision_names' => ['viewPulse' => 'pulse.view']]);
+    expect(app(CredentialScopeGate::class)->offerableNames())->not->toContain('fleet.reboot');
+    app(DecisionNames::class)->name('rebootFleet', 'fleet.reboot');
     Gate::policy(Widget::class, WidgetPolicy::class);
     $gadget = $this->mine;
 
@@ -304,6 +305,11 @@ it('offers every registered name and each policy verb\'s class-level names, neve
     foreach ($offered as $name) {
         expect($name)->not->toMatch('/\.\d+\./')->not->toStartWith('team.');
     }
+
+    // Flat named Gate definitions offer their own permission-shaped name (codex cs04 #3); an unnamed one offers nothing,
+    // and an entitlement is principal-only, so it is never offered.
+    expect($offered)->toContain('widgets.export', 'widgets.approve', 'widgets.public')
+        ->not->toContain('rebootFleet', 'entitlement:widgets.premium', 'entitlement:widgets.insight');
 
     // A subject that is no model (ScopedReport) offers nothing derived: there is no class name to derive from.
     expect($offered)->not->toContain('scoped-report.view');

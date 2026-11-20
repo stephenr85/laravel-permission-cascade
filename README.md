@@ -102,7 +102,8 @@ reach tier) answer a scoped credential only when it carries the action's or the 
 (`scopeForUser()`) is a query scope, not a Gate decision, and is not narrowed yet.
 
 `CredentialScopeGate::offerableNames()` lists the names a token can usefully be scoped to: every name registered as a
-list (here or in config; a closure names one call and is skipped) and, for every policy in `Gate::policies()`, each
+list (here or in config; a closure names one call and is skipped), every flat named `Gate::define` whose ability is
+itself a permission-shaped name (`connected-sites.revoke`; entitlements excluded) and, for every policy in `Gate::policies()`, each
 public verb's names on the policed model class. Never a per-record `{model}.{id}.{verb}` name. beam-accounts' widest
 token set (the Tokens page's "everything I hold", the device flow) reads it; offering a name grants nothing.
 

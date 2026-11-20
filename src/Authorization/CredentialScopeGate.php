@@ -149,7 +149,8 @@ class CredentialScopeGate
 
     /**
      * Every class-level name a scoped token can usefully carry (fleet ADR 0006, "Everything I hold"; credential-scope
-     * 04): the names registered in {@see DecisionNames}, and for every policy the Gate knows (`Gate::policies()`, the
+     * 04): the names registered in {@see DecisionNames}, every flat named Gate definition (its own permission-shaped
+     * ability name, or what the registry names for it), and for every policy the Gate knows (`Gate::policies()`, the
      * cascade registrar's included) each public verb's names on the policed model CLASS, as {@see namesFor()} answers
      * them (a policy's {@see NamesDecisions} answer, else the derivation). Never a per-record `{model}.{id}.{verb}`
      * name: those are unbounded, and a token that needs one names it explicitly.
@@ -164,6 +165,22 @@ class CredentialScopeGate
         $names = $this->decisionNames->registered();
 
         if ($this->gate instanceof LaravelGate) {
+            // Flat named Gate definitions (`Gate::define('connected-sites.revoke', …)`): a decision that asks no
+            // permission is still named by its own ability when that is a permission-shaped name (codex cs04 #3). A
+            // definition whose ability is no such name offers only what the registry names for it; an entitlement is
+            // principal-only and needs no name.
+            foreach (array_keys($this->gate->abilities()) as $ability) {
+                if (! is_string($ability) || str_starts_with($ability, self::ENTITLEMENT_PREFIX)) {
+                    continue;
+                }
+
+                if (self::isPermissionName($ability)) {
+                    $names[] = $ability;
+                } else {
+                    array_push($names, ...$this->decisionNames->registeredFor($ability));
+                }
+            }
+
             foreach (array_keys($this->gate->policies()) as $model) {
                 if (! is_string($model) || ! is_subclass_of($model, Model::class)) {
                     continue;

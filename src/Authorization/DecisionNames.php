@@ -100,6 +100,24 @@ class DecisionNames
         return array_values(array_unique(array_filter($names, fn ($name) => is_string($name) && $name !== '')));
     }
 
+    /**
+     * The list names registered for `$ability` (any subject; closures skipped, config included).
+     *
+     * @return list<string>
+     */
+    public function registeredFor(string $ability): array
+    {
+        $names = [];
+
+        foreach ($this->entries($ability) as $candidate) {
+            if (! $candidate instanceof Closure) {
+                array_push($names, ...$candidate);
+            }
+        }
+
+        return array_values(array_filter($names, fn ($name) => is_string($name) && $name !== ''));
+    }
+
     /** @return array<string, list<string>|Closure> */
     protected function entries(string $ability): array
     {
