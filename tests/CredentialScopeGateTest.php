@@ -283,6 +283,32 @@ it('names a configured verb answered by an override, or replaced by a subclass, 
     expect(Gate::allows('view', $widget))->toBeTrue();
 });
 
+// ── the names a widest token may carry (credential-scope 04) ──────────────────────────────
+
+it('offers every registered name and each policy verb\'s class-level names, never a per-record name or a closure\'s', function () {
+    app(DecisionNames::class)->name('rebootFleet', 'fleet.reboot');
+    app(DecisionNames::class)->name('join', fn (array $arguments) => ['team.'.$arguments[0]->getKey().'.join']);
+    config(['permission-cascade.decision_names' => ['viewPulse' => 'pulse.view']]);
+    Gate::policy(Widget::class, WidgetPolicy::class);
+    $gadget = $this->mine;
+
+    $offered = app(CredentialScopeGate::class)->offerableNames();
+
+    expect($offered)->toContain('fleet.reboot', 'pulse.view')
+        // a policy outside the cascade: each public verb by its derivation on the class
+        ->toContain('scoped-gadget.view', 'scoped-gadget.update', 'scoped-gadget.approve')
+        // a cascade policy: its declared rung names on the class (`viewAny` by `view`)
+        ->toContain('widget.view', 'widget.own.view', 'widget.update', 'widget.own.update', 'widget.force-delete')
+        ->not->toContain("scoped-gadget.{$gadget->id}.view", '*', 'widget.decisionnames', 'widget.scopeforuser', 'widget.scope-for-user');
+
+    foreach ($offered as $name) {
+        expect($name)->not->toMatch('/\.\d+\./')->not->toStartWith('team.');
+    }
+
+    // A subject that is no model (ScopedReport) offers nothing derived: there is no class name to derive from.
+    expect($offered)->not->toContain('scoped-report.view');
+});
+
 // ── C3: a superuser grant is narrowed ───────────────────────────────────────────────────
 
 it('does not carry a scoped superuser past a decision whose name the token lacks', function () {

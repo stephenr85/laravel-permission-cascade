@@ -101,6 +101,11 @@ false. Inside `BaseModelPolicy` the rungs that ask no permission (the steward, t
 reach tier) answer a scoped credential only when it carries the action's or the rung's name. The listing scope
 (`scopeForUser()`) is a query scope, not a Gate decision, and is not narrowed yet.
 
+`CredentialScopeGate::offerableNames()` lists the names a token can usefully be scoped to: every name registered as a
+list (here or in config; a closure names one call and is skipped) and, for every policy in `Gate::policies()`, each
+public verb's names on the policed model class. Never a per-record `{model}.{id}.{verb}` name. beam-accounts' widest
+token set (the Tokens page's "everything I hold", the device flow) reads it; offering a name grants nothing.
+
 Unchanged: a session, a `*` token, a guest, a check for another principal, and the entitlement plane
 (`entitlement:{key}`), which is answered principal-only, permissions its definition asks included. A host's allow-all
 before (a Root) answers through `CredentialScopeGate::superuser()`, and a Root arm inside a policy through

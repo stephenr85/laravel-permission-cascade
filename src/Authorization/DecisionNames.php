@@ -74,6 +74,32 @@ class DecisionNames
         ));
     }
 
+    /**
+     * Every name registered as a list, here or in `config('permission-cascade.decision_names')`, for the widest set a
+     * token may be scoped to (fleet ADR 0006, "Everything I hold"; credential-scope 04). A name registered as a closure
+     * is skipped: it names one call's arguments (a record, a team), so it has no class-level name to offer.
+     *
+     * @return list<string>
+     */
+    public function registered(): array
+    {
+        $names = [];
+
+        foreach ($this->names as $entries) {
+            foreach ($entries as $candidate) {
+                if (! $candidate instanceof Closure) {
+                    array_push($names, ...$candidate);
+                }
+            }
+        }
+
+        foreach ((array) config('permission-cascade.decision_names', []) as $configured) {
+            array_push($names, ...array_values((array) $configured));
+        }
+
+        return array_values(array_unique(array_filter($names, fn ($name) => is_string($name) && $name !== '')));
+    }
+
     /** @return array<string, list<string>|Closure> */
     protected function entries(string $ability): array
     {

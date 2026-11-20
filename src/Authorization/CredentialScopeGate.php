@@ -148,6 +148,86 @@ class CredentialScopeGate
     }
 
     /**
+     * Every class-level name a scoped token can usefully carry (fleet ADR 0006, "Everything I hold"; credential-scope
+     * 04): the names registered in {@see DecisionNames}, and for every policy the Gate knows (`Gate::policies()`, the
+     * cascade registrar's included) each public verb's names on the policed model CLASS, as {@see namesFor()} answers
+     * them (a policy's {@see NamesDecisions} answer, else the derivation). Never a per-record `{model}.{id}.{verb}`
+     * name: those are unbounded, and a token that needs one names it explicitly.
+     *
+     * Offering a name never grants it: the principal half of every decision still applies. beam-accounts' widest token
+     * set reads this.
+     *
+     * @return list<string>
+     */
+    public function offerableNames(): array
+    {
+        $names = $this->decisionNames->registered();
+
+        if ($this->gate instanceof LaravelGate) {
+            foreach (array_keys($this->gate->policies()) as $model) {
+                if (! is_string($model) || ! is_subclass_of($model, Model::class)) {
+                    continue;
+                }
+
+                $policy = $this->policyFor($model);
+                if (! is_object($policy)) {
+                    continue;
+                }
+
+                foreach ($this->policyVerbs($policy) as $verb) {
+                    try {
+                        array_push($names, ...$this->namesFor($verb, [$model]));
+                    } catch (\Throwable) {
+                        // A registered closure written for a record (`$arguments[0]->getKey()`) has no class-level
+                        // answer: it names per call, so there is nothing to offer for it here.
+                    }
+                }
+            }
+        }
+
+        return array_values(array_unique(array_filter($names, fn ($name) => is_string($name) && $name !== '' && $name !== '*')));
+    }
+
+    /**
+     * A policy's verbs: its public instance methods, less the hooks and helpers that are no decision (`before`,
+     * `after`, `decisionNames`, `scopeForUser`, magic methods) and anything Laravel's own traits declare
+     * (`HandlesAuthorization`'s `allow`/`deny`).
+     *
+     * @return list<string>
+     */
+    protected function policyVerbs(object $policy): array
+    {
+        $verbs = [];
+
+        foreach ((new \ReflectionObject($policy))->getMethods(\ReflectionMethod::IS_PUBLIC) as $method) {
+            $name = $method->getName();
+
+            if ($method->isStatic()
+                || str_starts_with($name, '__')
+                || in_array($name, ['before', 'after', 'decisionNames', 'scopeForUser'], true)
+                || str_starts_with($method->getDeclaringClass()->getName(), 'Illuminate\\')
+                || $this->declaredByIlluminateTrait($method)) {
+                continue;
+            }
+
+            $verbs[] = $name;
+        }
+
+        return $verbs;
+    }
+
+    protected function declaredByIlluminateTrait(\ReflectionMethod $method): bool
+    {
+        foreach ($method->getDeclaringClass()->getTraits() as $trait) {
+            if (str_starts_with($trait->getName(), 'Illuminate\\') && $trait->hasMethod($method->getName())) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * The cascade's derived names for a verb on a model subject: `{model}.{verb}` and, for a persisted instance,
      * `{model}.{id}.{verb}`; the verb as written and kebab-cased; `viewAny` also as `view`. Empty when the subject is no
      * model (a guest-less ability with no subject, a plain object, a scalar): nothing to derive from.
