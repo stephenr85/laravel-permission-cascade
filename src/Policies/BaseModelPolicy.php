@@ -463,6 +463,12 @@ class BaseModelPolicy implements NamesDecisions
      * allow-grants, minus direct deny-grants. `$user` may be null (an anonymous viewer):
      * a guest sees only the tiers the resolver lists for a null viewer, and only rows
      * that are `listed` when the model carries a discoverability flag.
+     *
+     * Under a scoped credential (fleet ADR 0006 C2, credential-scope 05) the row scope narrows exactly as the per-record
+     * rungs do ({@see scopeAdmitsRung()}): the unqualified branch needs `{model}.view` on the principal AND the token
+     * (as before, {@see permits()}); the morph owner's inherent rows need the token to carry `{model}.view` or
+     * `{model}.own.view`; the tier and grant rows (the shared branch) need `{model}.view` or `{model}.shared.view`. A
+     * scoped token that names none of them lists nothing. A guest and an unscoped call are unchanged.
      */
     public function scopeForUser($query, ?Authenticatable $user = null)
     {
@@ -500,9 +506,10 @@ class BaseModelPolicy implements NamesDecisions
         // token-gated here, exactly as CascadeResolutionTest locks.
         $isMorphOwned = in_array(HasMorphUser::class, $classes, true);
         $ownsPermitted = $user !== null && (
-            $isMorphOwned
+            ($isMorphOwned && $this->scopeAdmitsRung($modelClass, 'view', 'own'))
             || $this->permits($user, PermissionNamer::assemble($modelClass, 'own', 'view'))
         );
+        $sharedAdmitted = $user === null || $this->scopeAdmitsRung($modelClass, 'view', 'shared');
 
         // Legacy path: models without the directory ACL keep own-only scoping — and a guest
         // sees nothing, since there is no reach axis to widen to.
@@ -536,8 +543,13 @@ class BaseModelPolicy implements NamesDecisions
         $allowedIds = $this->grantedGrantableIds($morph, $user, AccessGrant::EFFECT_ALLOW);
         $deniedIds = $this->grantedGrantableIds($morph, $user, AccessGrant::EFFECT_DENY);
 
-        return $query->where(function ($outer) use ($table, $classes, $ownsPermitted, $user, $allowedIds, $deniedIds, $tierBranch) {
-            $shared = function ($q) use ($table, $allowedIds, $deniedIds, $tierBranch) {
+        return $query->where(function ($outer) use ($table, $classes, $ownsPermitted, $sharedAdmitted, $user, $allowedIds, $deniedIds, $tierBranch) {
+            $shared = function ($q) use ($table, $allowedIds, $deniedIds, $tierBranch, $sharedAdmitted) {
+                if (! $sharedAdmitted) {
+                    $q->whereRaw('1 = 0');
+
+                    return;
+                }
                 $q->where(function ($tierOrGrant) use ($table, $allowedIds, $tierBranch) {
                     // Tier-visible branch (listed only, when the model has a listed axis)…
                     $tierOrGrant->where($tierBranch);

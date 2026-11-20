@@ -321,6 +321,55 @@ it('answers superuserMay by the strict name only, never by an ownership rung', f
     expect($gate->superuserMay($this->root, 'rebootFleet'))->toBeTrue();
 });
 
+// ── a check outside the Gate (credential-scope 05) ─────────────────────────────────────
+
+it('answers an inline check by the scope: carries() and authorizeCarried() for the acting principal only', function () {
+    $gate = app(CredentialScopeGate::class);
+    Route::match(['get', 'post'], '/scoped/inline', fn () => tap(['ok' => true], fn () => $gate->authorizeCarried(auth()->user(), 'require.admin', ['tenant.administer'])));
+
+    // Unscoped (a session; the token resolver answers null for a `*` token): the inline check is the principal's alone.
+    $this->actingAs($this->member);
+    bindScope(null);
+    expect($gate->carries($this->member, 'tenant.administer'))->toBeTrue();
+    $this->getJson('/scoped/inline')->assertOk();
+    $this->postJson('/scoped/inline')->assertOk();
+
+    // Scoped without the name: refused with the same code a Gate decision gives, reads and writes alike.
+    bindScope(['widgets.export']);
+    expect($gate->carries($this->member, 'tenant.administer'))->toBeFalse()
+        ->and($gate->carries($this->member, ['other.name', 'widgets.export']))->toBeTrue();
+    $this->getJson('/scoped/inline')->assertForbidden()->assertJson(['code' => CredentialScopeRefusal::NOT_CARRIED]);
+    $this->postJson('/scoped/inline')->assertForbidden()->assertJson(['code' => CredentialScopeRefusal::NOT_CARRIED]);
+
+    // Scoped with the name: admitted; the inline check itself still decides for the principal.
+    bindScope(['tenant.administer']);
+    $this->getJson('/scoped/inline')->assertOk();
+    $this->postJson('/scoped/inline')->assertOk();
+
+    // Another principal's check is not the token's.
+    bindScope(['widgets.export']);
+    expect($gate->carries($this->other, 'tenant.administer'))->toBeTrue();
+});
+
+it('names an inline check through the registry when the caller passes no names, and refuses an unnamed one', function () {
+    $gate = app(CredentialScopeGate::class);
+    Route::get('/scoped/inline-registered', fn () => tap(['ok' => true], fn () => $gate->authorizeCarried(auth()->user(), 'require.owner')));
+    $this->actingAs($this->member);
+
+    // Nothing registered: no name a token can carry.
+    bindScope(['tenant.own']);
+    $this->getJson('/scoped/inline-registered')->assertForbidden()->assertJson(['code' => CredentialScopeRefusal::UNNAMED]);
+
+    app(DecisionNames::class)->name('require.owner', 'tenant.own');
+    $this->getJson('/scoped/inline-registered')->assertOk();
+    bindScope(['widgets.export']);
+    $this->getJson('/scoped/inline-registered')->assertForbidden()->assertJson(['code' => CredentialScopeRefusal::NOT_CARRIED]);
+
+    // Unscoped: the inline check is the principal's alone.
+    bindScope(null);
+    $this->getJson('/scoped/inline-registered')->assertOk();
+});
+
 // ── C4: the entitlement plane stays principal-only ─────────────────────────────────────
 
 it('leaves the entitlement plane principal-only, while the permission it asks stays narrowed when asked directly', function () {
