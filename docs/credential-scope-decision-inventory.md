@@ -26,9 +26,13 @@ decision that a scoped token passes **without** being asked for a name: those ar
 ## Probes (two shapes, per AGENTS.md "Counts")
 
 Scope: the 121 PHP repositories in `pnpm whiffletree repos` (registry rows with a `composer.json`), scanned at the
-shas in the evidence file `scan-roots.tsv` (space `cs05` worktrees for the six repos in that space, the live checkout
-otherwise; every `~/Herd` site scanned equals its `origin/main`). `vendor*`, `tests`, `database`, `.compat` excluded.
-Evidence: `~/Workspaces/tmp/evidence/credential-scope/logs/05/inventory/`.
+shas in the evidence file `scan-roots.tsv`: the space `cs05` worktrees (origin/main on 2026-11-20) for cascade, beam,
+beam-accounts, beam-market, tower and the flagship, the live checkout otherwise. Of the 115 live checkouts, 99 equal
+their `origin/main`, 2 have no remote, and 14 are behind it (`live-vs-origin.tsv`); for 10 of those 14 the
+`live..origin` PHP diff (read from whiffletree's mirrors) adds no line matching any probe (`probeG-origin-delta.txt`),
+and 4 (`laravel-beam-exec`, `laravel-composition-spine`, `laravel-satellite-composition`, `calcucrypt-tutorial`) are
+unmeasured at origin: no mirror holds both shas. `vendor*`, `tests`, `database`, `.compat` excluded. Evidence:
+`~/Workspaces/tmp/evidence/credential-scope/logs/05/inventory/`.
 
 - **A, file shape:** every `*Policy.php` (104 files in 37 repos; the domain "policy" objects among them are listed
   below as no-decision).
