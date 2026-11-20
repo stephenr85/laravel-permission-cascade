@@ -263,6 +263,27 @@ it('names an overridden cascade verb by its derived names only, never by the run
         ->and((new ScopedOpenPostPolicy)->decisionNames('update', [$foreign]))->toContain('post.own.update', 'post.shared.update');
 });
 
+it('lets a subclass that guards a verb and still runs the rungs declare their names (credential-scope 05)', function () {
+    // tower ThreadPolicy::view refuses a session thread, then defers to the cascade's rungs: it declares the rung names
+    // through cascadeRungNames(), so a token carrying `post.own.view` reaches the own rung, and the guard still decides.
+    Gate::policy(Post::class, ScopedGuardedPostPolicy::class);
+    grantPermission($this->member, 'post.own.view');
+    $this->actingAs($this->member);
+    $mine = Post::create(['name' => 'mine', 'user_id' => $this->member->id, 'visibility' => 'private']);
+    $guarded = Post::create(['name' => 'guarded', 'user_id' => $this->member->id, 'visibility' => 'private']);
+    $foreign = Post::create(['name' => 'foreign', 'user_id' => $this->other->id, 'visibility' => 'private']);
+
+    bindScope(['post.own.view']);
+    expect(Gate::allows('view', $mine))->toBeTrue()
+        ->and(Gate::allows('view', $guarded))->toBeFalse()
+        ->and(Gate::allows('view', $foreign))->toBeFalse();
+    bindScope(['widgets.export']);
+    expect(Gate::inspect('view', $mine)->code())->toBe(CredentialScopeRefusal::NOT_CARRIED);
+
+    expect((new ScopedGuardedPostPolicy)->decisionNames('view', [$mine]))->toContain('post.own.view', 'post.shared.view')
+        ->and((new ScopedOpenPostPolicy)->decisionNames('view', [$mine]))->toBeNull();
+});
+
 it('names a configured verb answered by an override, or replaced by a subclass, by its derived names only', function () {
     $widget = Widget::create(['name' => 'w']);
 
@@ -351,6 +372,55 @@ it('answers superuserMay by the strict name only, never by an ownership rung', f
     app(DecisionNames::class)->name('rebootFleet', 'fleet.reboot');
     bindScope(['fleet.reboot']);
     expect($gate->superuserMay($this->root, 'rebootFleet'))->toBeTrue();
+});
+
+// ── a check outside the Gate (credential-scope 05) ─────────────────────────────────────
+
+it('answers an inline check by the scope: carries() and authorizeCarried() for the acting principal only', function () {
+    $gate = app(CredentialScopeGate::class);
+    Route::match(['get', 'post'], '/scoped/inline', fn () => tap(['ok' => true], fn () => $gate->authorizeCarried(auth()->user(), 'require.admin', ['tenant.administer'])));
+
+    // Unscoped (a session; the token resolver answers null for a `*` token): the inline check is the principal's alone.
+    $this->actingAs($this->member);
+    bindScope(null);
+    expect($gate->carries($this->member, 'tenant.administer'))->toBeTrue();
+    $this->getJson('/scoped/inline')->assertOk();
+    $this->postJson('/scoped/inline')->assertOk();
+
+    // Scoped without the name: refused with the same code a Gate decision gives, reads and writes alike.
+    bindScope(['widgets.export']);
+    expect($gate->carries($this->member, 'tenant.administer'))->toBeFalse()
+        ->and($gate->carries($this->member, ['other.name', 'widgets.export']))->toBeTrue();
+    $this->getJson('/scoped/inline')->assertForbidden()->assertJson(['code' => CredentialScopeRefusal::NOT_CARRIED]);
+    $this->postJson('/scoped/inline')->assertForbidden()->assertJson(['code' => CredentialScopeRefusal::NOT_CARRIED]);
+
+    // Scoped with the name: admitted; the inline check itself still decides for the principal.
+    bindScope(['tenant.administer']);
+    $this->getJson('/scoped/inline')->assertOk();
+    $this->postJson('/scoped/inline')->assertOk();
+
+    // Another principal's check is not the token's.
+    bindScope(['widgets.export']);
+    expect($gate->carries($this->other, 'tenant.administer'))->toBeTrue();
+});
+
+it('names an inline check through the registry when the caller passes no names, and refuses an unnamed one', function () {
+    $gate = app(CredentialScopeGate::class);
+    Route::get('/scoped/inline-registered', fn () => tap(['ok' => true], fn () => $gate->authorizeCarried(auth()->user(), 'require.owner')));
+    $this->actingAs($this->member);
+
+    // Nothing registered: no name a token can carry.
+    bindScope(['tenant.own']);
+    $this->getJson('/scoped/inline-registered')->assertForbidden()->assertJson(['code' => CredentialScopeRefusal::UNNAMED]);
+
+    app(DecisionNames::class)->name('require.owner', 'tenant.own');
+    $this->getJson('/scoped/inline-registered')->assertOk();
+    bindScope(['widgets.export']);
+    $this->getJson('/scoped/inline-registered')->assertForbidden()->assertJson(['code' => CredentialScopeRefusal::NOT_CARRIED]);
+
+    // Unscoped: the inline check is the principal's alone.
+    bindScope(null);
+    $this->getJson('/scoped/inline-registered')->assertOk();
 });
 
 // ── C4: the entitlement plane stays principal-only ─────────────────────────────────────
@@ -475,6 +545,20 @@ class ScopedOpenPostPolicy extends PostPolicy
     public function view(?Illuminate\Contracts\Auth\Authenticatable $user, Model $instance)
     {
         return $user !== null;
+    }
+}
+
+/** Guards `view`, then runs the cascade's rungs, and declares their names (as tower ThreadPolicy does). */
+class ScopedGuardedPostPolicy extends PostPolicy
+{
+    public function view(?Illuminate\Contracts\Auth\Authenticatable $user, Model $instance)
+    {
+        return $instance->name !== 'guarded' && parent::view($user, $instance);
+    }
+
+    public function decisionNames(string $ability, array $arguments): ?array
+    {
+        return $ability === 'view' ? $this->cascadeRungNames($ability, $arguments) : parent::decisionNames($ability, $arguments);
     }
 }
 

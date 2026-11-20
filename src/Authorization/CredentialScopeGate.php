@@ -48,7 +48,9 @@ use Rushing\PermissionCascade\Support\CredentialScope;
  *    the scope belongs to the credential that authenticated THIS request.
  *
  * {@see superuser()} and {@see superuserMay()} serve a host's allow-all `Gate::before` (the flagship's Root) and Root
- * arms inside policies: under a scope a superuser grant answers only for a name the token carries.
+ * arms inside policies: under a scope a superuser grant answers only for a name the token carries. {@see carries()} and
+ * {@see authorizeCarried()} serve a check made outside the Gate (credential-scope 05): an inline role or membership read
+ * that cannot be moved into a Gate decision asks the scope for its name directly.
  */
 class CredentialScopeGate
 {
@@ -83,6 +85,47 @@ class CredentialScopeGate
     public function permits(string $permission): bool
     {
         return ! app()->bound(CredentialScopeResolver::class) || app(CredentialScope::class)->permits($permission);
+    }
+
+    /**
+     * For a check made OUTSIDE the Gate (fleet ADR 0006: "a check outside the Gate is either moved into it or narrowed in
+     * place"): an inline role, membership or ownership read in a controller, a middleware or a query scope asks the
+     * scope for the decision's name directly. True when no scope governs checks for `$user` (a session, a `*` token, a
+     * guest, another principal); under a scope, true only when the token carries one of `$names`. It never grants: the
+     * inline check itself is still the principal half. An empty list names nothing, so a scoped token is refused.
+     *
+     * @param  string|list<string>  $names
+     */
+    public function carries(mixed $user, string|array $names): bool
+    {
+        return ! $this->scopes($user) || $this->permitsAny(array_values((array) $names));
+    }
+
+    /**
+     * {@see carries()}, or throw the coded refusal a Gate decision would give, so an inline check refuses a scoped token
+     * exactly as a named Gate decision does (a 403 rendered `{message, code}`). `$decision` identifies the inline check
+     * (`require.admin`); its names are `$names`, or, when null, the names its owner registered for `$decision` in
+     * {@see DecisionNames} (a host-owned name, `app(DecisionNames::class)->name('require.admin', 'tenant.administer')`).
+     * No name at all refuses a scoped token as {@see CredentialScopeRefusal::UNNAMED}; a name not carried as
+     * {@see CredentialScopeRefusal::NOT_CARRIED}.
+     *
+     * @param  string|list<string>|null  $names
+     */
+    public function authorizeCarried(mixed $user, string $decision, string|array|null $names = null): void
+    {
+        if (! $this->scopes($user)) {
+            return;
+        }
+
+        $names = $names === null ? ($this->decisionNames->for($decision, []) ?? []) : array_values((array) $names);
+
+        if ($names === []) {
+            CredentialScopeRefusal::unnamed($decision)->authorize();
+        }
+
+        if (! $this->permitsAny($names)) {
+            CredentialScopeRefusal::notCarried($decision, $names)->authorize();
+        }
     }
 
     /**
