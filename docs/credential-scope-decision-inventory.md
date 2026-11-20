@@ -13,7 +13,7 @@ workspace); the enforcement is `Authorization\CredentialScopeGate` (02).
 |---|---|---|
 | a flat ability (`declarations.check`, `tenant:provision`, `agreement:x`) | itself | `CredentialScopeGate::isPermissionName()` |
 | a subjectless or non-model Gate ability | the name its owner registers | `DecisionNames::name()`, `config('permission-cascade.decision_names')` |
-| a policy verb on a model (membership, ownership, participant, seller arms included) | `{model}.{verb}`, `{model}.{id}.{verb}`; a `NamesDecisions` policy adds its own | derivation; `BaseModelPolicy` adds `.own.` / `.shared.` rungs |
+| a policy verb on a model (membership, ownership, participant, seller arms included) | `{model}.{verb}`, `{model}.{id}.{verb}`; a `NamesDecisions` policy adds its own | derivation; `BaseModelPolicy` adds `.own.` / `.shared.` rungs, and a subclass that overrides a verb but still runs the rungs returns `cascadeRungNames()` (05) |
 | a Root arm inside a policy or a host `before` | the strict name (registered or derived) | `superuser()`, `superuserMay()` |
 | a listing's row scope | `{model}.view`, plus `{model}.own.view` (owner rows) / `{model}.shared.view` (tier and grant rows) | `BaseModelPolicy::scopeForUser()` (05) |
 | a check outside the Gate | the name the call site passes, or the one registered under the decision's key | `carries()`, `authorizeCarried()` (05) |
@@ -123,6 +123,7 @@ correctly), **exempt** (ADR 0006's exemptions), **open** (a scoped token passes 
 | model policies (`Entity`, `Thread`, `ModelStatus`, `Message`, `TenantSync`, `Rule`, `EntitySectionRevision`, `EntityEvidenceItem`, `EntityObligation`, `EntityRegistration`, `EntityAssessment`, `Conduit`) | derived / declared | named (02) |
 | `ConduitPolicy::before` Root arm | `conduit.{verb}` | named (#39); imports the cascade class (05) |
 | `ThreadPolicy::scopeForUser()` (a copy of the parent's) | `thread.view` / `thread.own.view` / `thread.shared.view` | named (05) |
+| `ThreadPolicy::view` / `update`, `EntityPolicy::update` (override a verb, then run the rungs; Entity adds a steward arm) | every rung name, declared through `cascadeRungNames()`; the steward arm by `.update` / `.own.update` | named (05) |
 | flat defines (`embeddings.embed`, `connected-sites.revoke`, `operator-connected-sites.revoke`, `entity-evidence.write`, `entity-obligations.record-receipt`, `disclosures.record`, `activity.resource.read`) | themselves | named |
 | `intake` (asked with a circuit) | `circuit.intake`, `circuit.{id}.intake` | named (derived) |
 | `TenantSyncController` central Root arm (was `:78`) | `tenants.sync` | named (05) |
