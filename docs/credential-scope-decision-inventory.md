@@ -30,8 +30,9 @@ shas in the evidence file `scan-roots.tsv`: the space `cs05` worktrees (origin/m
 beam-accounts, beam-market, tower and the flagship, the live checkout otherwise. Of the 115 live checkouts, 99 equal
 their `origin/main`, 2 have no remote, and 14 are behind it (`live-vs-origin.tsv`); for 10 of those 14 the
 `live..origin` PHP diff (read from whiffletree's mirrors) adds no line matching any probe (`probeG-origin-delta.txt`),
-and 4 (`laravel-beam-exec`, `laravel-composition-spine`, `laravel-satellite-composition`, `calcucrypt-tutorial`) are
-unmeasured at origin: no mirror holds both shas. `vendor*`, `tests`, `database`, `.compat` excluded. Evidence:
+and the other 4 (`laravel-beam-exec`, `laravel-composition-spine`, `laravel-satellite-composition`,
+`calcucrypt-tutorial`), which no mirror held at both shas, were scanned at their exact origin revisions (probe L
+below). `vendor*`, `tests`, `database`, `.compat` excluded. Evidence:
 `~/Workspaces/tmp/evidence/credential-scope/logs/05/inventory/`.
 
 - **A, file shape:** every `*Policy.php` (104 files in 37 repos; the domain "policy" objects among them are listed
@@ -74,6 +75,7 @@ correctly), **exempt** (ADR 0006's exemptions), **open** (a scoped token passes 
 | `AuthenticatedReadPolicy`, `ActorOwnedParticleAccess` / `SharedParticleAccess` read arms, and `ResourceReadGuard`'s admissions by a tenancy or declared row scope with no policy | none asked | **open (R1)** |
 | `SavedFilterService:108` owner compare (a restriction beside the Gate's `update` / `delete` on the saved filter) | `saved-filter.*` | named |
 | deprecated `Splicewire\Beam\Authorization\CredentialScopeGate` alias | — | removed (05) |
+| `Filters\SavedFilterResourceHandler` `visible()` / `find()` (`:14`, `:25`; `SavedFilterService:35,45` own-or-shared predicate), a custom Frame handler that `FrameResourceController` dispatches with no read question | intended `saved-filter.view` / `saved-filter.{id}.view` (target resource and ownership restrictions kept) | **open (R5)** |
 
 ### splicewire/laravel-beam-accounts
 
@@ -84,8 +86,10 @@ correctly), **exempt** (ADR 0006's exemptions), **open** (a scoped token passes 
 | `TokenPolicy` | `personal-access-token.*` | named |
 | `MembershipPolicy` via `manageMembers` / `manageInvitations` / `manageInvitation` (always asked with a team / invitation) | `{team-model}.manage-members`, `.manage-invitations`, `invitation.manage-invitation` (+ `{id}`) | named (derived) |
 | `ux.author`, `ux.{realm}.author`, `request-{key}-access` (on a model) | themselves / derived | named |
-| `TeamMemberReadPolicy` (member arm), `InvitationReadPolicy`, `MePolicy` (read policies) | none asked | **open (R1)** |
+| `TeamMemberReadPolicy` (member arm), `InvitationReadPolicy` (read policies); `MePolicy` (declared, but `GET /me` bypasses it: R5) | none asked | **open (R1)** |
 | `PasskeyController:104,121` (owner `abort_unless` on the session API, reachable with `auth:sanctum`) | none asked | **open (R2)** |
+| `Api\V1\ProfileController::update` (`PATCH /me`, self-service name / email write) | `user.update`, `user.{id}.update` (as `UserPolicy::update`'s self arm) | named (05 review, beam-accounts 4806773) |
+| `Api\V1\MeController::show` (`GET /me`): projects `request()->user()` directly through `ParticleController::respond()` (beam `ParticleController.php:883`), never reaching `ResourceReadGuard` or `MePolicy` | intended `user.view`, `user.{id}.view` | **open (R5)** |
 | `UsersQuery:42` Root reads every user (a row scope) | none asked | **open (R2)** |
 | `Account\TeamMemberController` membership and owner reads (`index`, `roles`, `updateRole`, `remove`: `NotTeamMember`, `TeamOwnerRequired`) and `TeamMembers:73,98` | none asked | **open (R2)** |
 | `ImpersonateUser:66` self refusal (a refusal, inside an op with `ability:`) | the op's | named |
@@ -137,6 +141,8 @@ correctly), **exempt** (ADR 0006's exemptions), **open** (a scoped token passes 
 | `OperatorResourceReadPolicy`, `ScaffoldPackReadPolicy` | Gate `viewAny` / entitlement / `scaffold-pack.*` | named / exempt |
 | `ProvisionTenantInputData:82` Root may name a parent (a field rule on `provision.tenant` routes) | `tenant:provision` (the route's) | named |
 | `ReviewInbox:194` awaiting rows by the user's role tokens | none asked | **open (R2)** |
+| filter options sources `AgentOptionsSource:18`, `CircuitOptionsSource:18` (owner-filtered by `user_id`), `SiloOptionsSource`, `TagOptionsSource`: returned by `ResourceFilters:123` after only the parent resource is authorized (`:99`) | intended: the related model's `agent.view` / `agent.own.view`, `circuit.view` / `circuit.own.view`, `silo.view`, `tag.view` (owner filter kept) | **open (R5)** |
+| `Frame\ConduitResourceHandler` (custom Frame handler; no read question of its own) | intended `conduit.view` | **open (R5)** |
 | `Navigation\Gates\AccessGate:65` Root nav token | an offer, not an authority | not reachable as a grant |
 | `PolishPolicy`, `MaterializationPolicy`, federation `*ResolutionPolicy` / `CorpusAudiencePolicy` | — | no decision (domain objects) |
 
@@ -175,6 +181,8 @@ correctly), **exempt** (ADR 0006's exemptions), **open** (a scoped token passes 
 | splicewire/audiostud | ownership reads in `StudioController:391,475,493`, `SheetMusicController:59`, `SongController:101`, `ReportController:48`, ops `ChooseTake:21`, `ListTakes:21`, `TakeIteration:32-33`, `SubmitTimelineRegeneration:32-33` | **open (R4)** |
 | splicewire/numero | `NumerologyResourcePolicy`, `VisibilityPolicy`; `bypass-marquee` | named / fail-closed |
 | splicewire/numero | `SubjectAccess:96` owner read, `GrantController:55`, `Operator\EntitlementRefundController:42` | **open (R4)** |
+| splicewire/numero | `Frame\NumeroResourceHandler` (custom Frame handler, no read question) | **open (R5)**: intended `{key}.view` per resource |
+| splicewire/laravel-beam-commerce | `SiteBilling\Seat\BillingLedgerHandler` (custom Frame handler, no read question) | **open (R5)**: intended `billing-ledger.view` (or the host's `billing.view`) |
 | stephenrushing (site) | `WorkspaceResourcePolicy::before` (site owner email), `bypass-marquee` | named (derived verbs) / fail-closed |
 | calcucrypt, calcucrypt-tutorial | `CalculatorPolicy`, `PostPolicy`, `SavedInputPolicy`; `ux.author`, `beam-docs.publish` | named |
 | starters (beam, satellite, commerce, market, tower) | `beam-docs.publish`, `ux.{realm}.author`, `site.edit`, `commerce.manage`, `market-extensions.install`, `installed-extensions.*`, `market-connections.sync` (Root or role inside: the principal half) | named (flat) |
@@ -185,13 +193,50 @@ correctly), **exempt** (ADR 0006's exemptions), **open** (a scoped token passes 
 
 Every other registry PHP repo: no hit on any of probes A–F.
 
-## Remainder (open rows)
+### Route-first and data-path sweep (review cs05)
+
+The censuses above find decisions by how they are registered; the review showed code that bypasses both the Gate and
+the read guard. Four more probes start from requests and data paths instead (evidence `logs/05/inventory/`):
+
+- **H, route-first (flagship):** every route on the booted flagship whose middleware authenticates a bearer
+  (`auth:sanctum`, 1135 routes: the flagship's own plus every tower, beam, beam-accounts and beam-market route it
+  mounts), each controller method's own source read for an authorization step (`probeH-route-sweep-flagship.tsv`):
+  392 gated in the method, 380 particle / Frame controllers (beam's generic read and op paths), 16 closures or
+  invokables, **347 with no authorization step in the method**, 132 of them gated by a route middleware. The other 215
+  are candidates, by controller: Splicewire\Beam\Webhooks\Http\HookEventCatalogController (68), Splicewire\Tower\Api\V1\KnowledgeGraphController (22), Splicewire\Tower\Api\V1\SystemModelsController (14), Splicewire\Tower\Composition\Http\Controllers\StudioController (12), Splicewire\Tower\Api\V1\EntityIntakeController (8), Splicewire\Tower\Api\V1\ApiTokenController (7), App\Http\Controllers\Api\V1\ContextScopeController (6), App\Http\Controllers\Api\V1\AgentController (6), Splicewire\Tower\Api\V1\SiloController (4), Splicewire\Tower\Api\V1\ModelStatusController (4), Splicewire\Tower\Api\V1\FragmentUrlBatchController (4), Splicewire\Tower\Api\V1\EmbeddingController (4), Splicewire\Tower\Api\V1\ConceptAnchorController (4), Splicewire\Beam\Market\Http\Controllers\Api\V1\ExtensionHeartbeatController (4), Splicewire\Beam\Commerce\Http\AutoReloadConfigController (4), Schemastud\Frame\Http\Controllers\FrameResourceFiltersController (4), App\Http\Controllers\Api\V1\CircuitController (4), Splicewire\Beam\Accounts\Http\Controllers\Api\V1\PasskeyController (3), Splicewire\Tower\Determination\Http\Controllers\DeterminationOverviewController (2), Splicewire\Tower\Api\V1\ThreadController (2), Splicewire\Tower\Api\V1\HybridSearchController (2), Splicewire\Tower\Api\V1\GuestTokenController (2), Splicewire\Tower\Api\V1\GraphOverviewController (2), Splicewire\Tower\Api\V1\GoldenSetController (2), Splicewire\Tower\Api\V1\FragmentController (2), Splicewire\Tower\Api\V1\EvalRunController (2), Splicewire\Tower\Api\V1\DereferenceController (2), Splicewire\Tower\Api\V1\CompletionController (2), Splicewire\Tower\Api\V1\BlockManifestController (2), Splicewire\Beam\Tenancy\Http\Controllers\TenantMemberController (2), Splicewire\Beam\Commerce\Http\Controllers\CreditsController (2), App\Http\Controllers\Api\V1\DeclarationController (2), Splicewire\Tower\Api\V1\TenantInvitationController (1), Splicewire\Tower\Api\V1\ReleaseController (1), Splicewire\Beam\Accounts\Http\Controllers\Api\V1\MeController (1), Splicewire\Beam\Accounts\Http\Controllers\Api\V1\LogoutController (1), Schemastud\Frame\Http\Controllers\FrameResourceSummaryController (1). Classified so far: `MeController::show` (R5), `PasskeyController` (R2),
+  `TenantMemberController` (R2), the chooser and seats list (named, 05), `ApiTokenController` (ticket 04),
+  `FrameResourceFiltersController` (the options sources, R5), `LogoutController` (revokes the caller's own token: no
+  data), `HookEventCatalogController` (68 per-resource event-catalog reads: declared metadata, no records). **The rest
+  are R6: to classify in ticket 07** (each either reaches a policy or row scope below the controller, or is a decision
+  to name).
+- **I, custom resource handlers** (`implements …ResourceHandler`, 7): beam `ParticleFrameResourceHandler` (asks
+  `ResourceReadGuard`: R1 family) and `DefaultParticleResourceHandlerResolver`; `SavedFilterResourceHandler`, tower
+  `ConduitResourceHandler`, numero `NumeroResourceHandler`, beam-commerce `BillingLedgerHandler` (no read question: R5);
+  schemastud `BeamParticleResourceHandler` (abstract base).
+- **J, options sources** (`implements OptionsSource`, 4 in tower): R5.
+- **K, ownership queries** (`where('user_id'|'owner_id', <actor>)`, `whereBelongsTo(<actor>)`, `$request->user()->{relation}()->…`;
+  151 lines, 88 of them fable-legacy, out of scope): declared Data `scope()` closures (satellite-training
+  `TrainingRunData`, tower `ConnectedSiteData`, `ReleaseQuery`, `GuestLinkQuery`, calcucrypt-tutorial `SavedInputData`)
+  are R1's row-scope admission; the cascade's own owner traits are the named rungs; the rest are rows above (R2, R4) or
+  inside a named decision (tower `TenantSyncController`, `MachineIdentityReadGrant`, flagship
+  `AuthorizeTenantProvisioning`).
+- **L, the four repos unmeasured at origin**, scanned at their exact origin revisions in a whiffletree space
+  (`cs05-origin`; `probeL-origin-four.txt`, HEAD = `ls-remote` origin for each): laravel-beam-exec 3d73335 (one Gate
+  define, `synthetic.portfolios.manage`, a flat name: named), laravel-composition-spine c4aa187 (a domain `before()`
+  interface: no decision), laravel-satellite-composition 7e58ebb (no hit), calcucrypt-tutorial effd0ab (web-guard
+  session routes and `beam-docs.publish`: not bearer-reachable / named). Every registry repo is now scanned at origin
+  or at a live sha whose delta to origin adds no probe hit.
+
+Probe H is run on the flagship only. Other beam hosts (audiostud, numero, standwell, entreport, the starters) were
+covered by probes A–G and I–K; a route-first run on each is part of R6.
+
+## Remainder (open rows; ticket 07, filed by the orchestrator 2026-11-20)
 
 - **R1, beam (one site, many repos):** `ResourceReadGuard` admits a read through a `ResourceReadPolicy` or a tenancy or
   declared row scope without asking any name. Fix once in beam: under a scope, a read the guard admits other than
   through a Gate decision asks `carries($actor, ["{$key}.view", …derived {model}.view])`. It covers beam
   (`AuthenticatedReadPolicy`, the particle-access read arms), beam-accounts (`TeamMemberReadPolicy`,
-  `InvitationReadPolicy`, `MePolicy`), audiostud's and standwell's read policies, and every resource with no policy.
+  `InvitationReadPolicy`; `MePolicy` only where `ResourceReadGuard` asks it: `GET /me` bypasses it, R5), audiostud's and standwell's read policies, and every resource with no policy.
   Consumer cost: each token kind that reads particle resources must carry `{key}.view` (06 proves it).
 - **R2, inline reads in packages and the flagship:** beam-accounts `PasskeyController`, `UsersQuery`, `TeamMemberController`; beam-ux `TokenAccessGate` `root`; beam-market
   `TenantReportingSite` (the device-flow heartbeat consumer must gain the name first), `MarketProductRowScope`; tower
@@ -199,11 +244,22 @@ Every other registry PHP repo: no hit on any of probes A–F.
 - **R3, rushing/entreport (held):** `CompanyController:171` needs a named decision (`company.view`,
   `company.{id}.view`), best as a `CompanyPolicy` so the derivation names it.
 - **R4, sites:** audiostud's ten ownership reads and numero's three.
-- **Q1, a ruling:** the flagship defines `entitlement:os.operate` (and the Root arms of `exec.view`, `analytics.view`) as
+- **R5, reads that bypass both the Gate and `ResourceReadGuard`** (so R1's fix alone does not cover them): beam-accounts
+  `GET /me` (`MeController::show` → `ParticleController::respond()`; intended `user.view` / `user.{id}.view`); beam
+  `SavedFilterResourceHandler` `visible()` / `find()` (intended `saved-filter.view` / `saved-filter.{id}.view`); tower
+  options sources `AgentOptionsSource`, `CircuitOptionsSource` (owner-filtered), `SiloOptionsSource`,
+  `TagOptionsSource` (intended: the related model's view names, `.own.view` for the owner-filtered two), served by
+  beam `ResourceFilters:123` after only the parent is authorized; custom Frame handlers tower `ConduitResourceHandler`
+  (`conduit.view`), numero `NumeroResourceHandler` (`{key}.view`), beam-commerce `BillingLedgerHandler`
+  (`billing-ledger.view`). Best enforced where they are dispatched (`FrameResourceController`, `ResourceFilters`) plus
+  `MeController`.
+- **R6, route-first candidates to classify** (probe H): the 215 bearer routes with no authorization step in the
+  controller method and no gating middleware, listed by controller above; and a route-first run on every other beam host.
+- **Q1, ruled 2026-11-20:** `operator.access` for the operator surface, built in ticket 07. Background: the flagship defines `entitlement:os.operate` (and the Root arms of `exec.view`, `analytics.view`) as
   `BeamAccounts::isRoot`, so `require.root` and every operator-realm door is a Root grant answered principal-only under
-  C4. C3 says a Root grant passes a scoped Root token only with the decision's name. Recommendation: the entitlement
-  plane stays exempt, and `RequireRootRole` also asks the scope for a registered name (`operator.access`), as
-  `require.admin` now does.
+  C4. C3 says a Root grant passes a scoped Root token only with the decision's name. The entitlement plane stays
+  exempt, and `RequireRootRole` also asks the scope for the registered name `operator.access`, as `require.admin` now
+  does.
 
 ## Names a token kind may need (for 03's widest set and 04's kinds)
 
@@ -211,4 +267,4 @@ Every other registry PHP repo: no hit on any of probes A–F.
 `tenant.view` (seats list), `user.view` / `user.{id}.view` (chooser), `{key}.view` for each member-read resource
 (`rules.view`, `evidence.view`, `review-queue.view`, …), `thread.own.view` / `thread.shared.view` (thread lists). Only
 `tenant.administer` is not otherwise a permission or derivable name: it is registered in `DecisionNames` under
-`require.admin`.
+`require.admin`. `PATCH /me` asks `user.update` / `user.{id}.update`.
