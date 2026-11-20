@@ -142,7 +142,8 @@ correctly), **exempt** (ADR 0006's exemptions), **open** (a scoped token passes 
 | `ProvisionTenantInputData:82` Root may name a parent (a field rule on `provision.tenant` routes) | `tenant:provision` (the route's) | named |
 | `ReviewInbox:194` awaiting rows by the user's role tokens | inside a named read: reached only through `review-queue` / `review-units` (`TenantMemberReadPolicy`, `{key}.view`, 05) and their `review_parents` options (after the parent's read) | named (07 R2: classified, no change) |
 | filter options sources `AgentOptionsSource:18`, `CircuitOptionsSource:18` (owner-filtered by `user_id`), `SiloOptionsSource`, `TagOptionsSource`: returned by `ResourceFilters:123` after only the parent resource is authorized (`:99`) | intended: the related model's `agent.view` / `agent.own.view`, `circuit.view` / `circuit.own.view`, `silo.view`, `tag.view` (owner filter kept), registered under `filter-options:{ref}` and asked by beam `ResourceFilters::options()` | named (07 R5, tower c4138d4 + beam 651dca1) |
-| `Frame\ConduitResourceHandler` index, show, summary (custom Frame handler) | `conduits.view`, `conduit.view`, `conduit.{id}.view` via `ResourceReadGuard::authorizeScopedRead()` | named (07 R5, tower c4138d4) |
+| `Frame\ConduitResourceHandler` index, show, summary (custom Frame handler); update asks its response's read before the first write | `conduits.view`, `conduit.view`, `conduit.{id}.view` via `ResourceReadGuard::authorizeScopedRead()` | named (07 R5, tower c4138d4; update order a8407cd) |
+| `Api\V1\ThreadController@create` / `@update` (a thread named by a body or route `id`, saved with no decision: any member rewrote any thread; found by R6) | `thread.update`, `thread.{id}.update`, `thread.own.update` (ThreadPolicy::update, asked before any write) | named (07, orchestrator ruling, tower f9dd5e7) |
 | `Navigation\Gates\AccessGate:65` Root nav token | an offer, not an authority | not reachable as a grant |
 | `PolishPolicy`, `MaterializationPolicy`, federation `*ResolutionPolicy` / `CorpusAudiencePolicy` | — | no decision (domain objects) |
 
@@ -248,13 +249,20 @@ Still open:
   metadata: the 68 hook event catalogs, block manifest, declaration and context-scope schemas), 30 gated below the
   controller (a Gate decision in the write pipeline or the service, cited per row), 1 self-token only (logout), 11
   built in 07 (passkeys, `GET /me`, frame filters options and summary) or listed below (beam-tenancy
-  `TenantMemberController` ×2), and **99 need a name**. Other beam hosts (`other-hosts-summary.txt`, unit: bearer
+  `TenantMemberController` ×2), and 99 need a name (the census as classified, 2026-11-20). Other beam hosts (`other-hosts-summary.txt`, unit: bearer
   routes, `auth:sanctum` or a sanctum `auth:api`; every host's default guard is `web`): audiostud, calcucrypt, fable,
   schemastud, splicewire, stephenrushing, standwell and beam-pilot: 0 bearer routes; numero: 5 `auth:api` routes, all
   `ApiCaller::can`; the beam / satellite / commerce / market starters: one `GET api/user` closure each (a self read
-  with no decision); the tower starter (`laravel-tower-starter`): 64 candidates, 42 need a name (most shared with the
-  flagship rows below). Unbuilt, each by controller method with its proposed name (the file:line and the proposed fix
-  per route are in `flagship-215-summary.txt` and `other-hosts-summary.txt`):
+  with no decision); the tower starter (`laravel-tower-starter`): 64 candidates, 42 need a name, plus its `api/user` closure (most shared
+  with the flagship rows below).
+
+  **Still outstanding (review cs07 reconciliation):** of the 68 controller methods the census classified as needing a
+  name (unit: unique `Controller@method` across the flagship and the tower starter), 07 built 2 (the site report's
+  heartbeat and uninstall, beam-market ee4a3fe) and closed 1 (`Tower\Api\V1\ThreadController@create` / `@update`,
+  tower f9dd5e7: ThreadPolicy::update before any write), so **65 remain**, listed below. In routes: the flagship's 99
+  less the 4 site-report routes and the 2 thread routes leaves **93**; the tower starter's 43 rows are unchanged. Each
+  unbuilt method with its proposed name (the file:line and the proposed fix per route are in `flagship-215-summary.txt`
+  and `other-hosts-summary.txt`):
 
 | controller method | proposed name | host | where (origin) |
 |---|---|---|---|
@@ -274,7 +282,6 @@ Still open:
 | `Tower\Api\V1\KnowledgeGraphController@reextract` | `fragment.update, fragment.{id}.update` | flagship, tower starter | tower@d87fc648 src/Api/V1/KnowledgeGraphController.php:313-315 |
 | `Tower\Api\V1\FragmentUrlBatchController@index` | `fragment-url-batch.view (+ .own.view rows)` | flagship | tower@d87fc648 src/Api/V1/FragmentUrlBatchController.php:42 |
 | `Tower\Api\V1\FragmentUrlBatchController@show` | `fragment-url-batch.view, fragment-url-batch.{id}.view` | flagship | tower@d87fc648 src/Api/V1/FragmentUrlBatchController.php:66 |
-| `Tower\Api\V1\ThreadController@create` | `thread.update, thread.{id}.update, thread.own.update` | flagship | tower@d87fc648 src/Api/V1/ThreadController.php:101 |
 | `Tower\Determination\Http\Controllers\DeterminationOverviewController@show` | `entity.view (+ .own.view)` | flagship, tower starter | tower@d87fc648 src/Determination/Http/Controllers/DeterminationOverviewController.php:30-34 |
 | `Tower\Api\V1\GraphOverviewController@show` | `concept.view` | flagship, tower starter | tower@d87fc648 src/Api/V1/GraphOverviewController.php:32-41 |
 | `Tower\Composition\Http\Controllers\StudioController@indexIdeas` | `composition-idea.view` | flagship, tower starter | tower@d87fc648 src/Composition/Http/Controllers/StudioController.php:43 |
@@ -324,12 +331,12 @@ Still open:
 | `Beam\Accounts\Http\Controllers\Account\TeamInvitationController@revoke` | `{team-model}.manage-invitations` | tower starter | beam-accounts@ff61517 src/Http/Controllers/Account/TeamInvitationController.php:132 |
 | `Tower\Api\V1\WebSearchController@search` | `web-search.query` | tower starter | tower@d87fc648 src/Api/V1/WebSearchController.php:31-46 |
 | `Closure [closure-or-invokable: outside the candidate filter, added]` | `user.view, user.{id}.view` | tower starter | routes/api.php:29-31 (tower |
-| beam-tenancy `Http\Controllers\TenantMemberController` (2 routes) | `{tenant}.view-members` / `.manage-members` | flagship | listed by 05 as R2, not in 07's space |
-| starters' `GET api/user` closure (`routes/api.php:29-31`; tower starter `:120-122`) | `user.view`, `user.{id}.view` | beam, satellite, commerce, market, tower starters | remove it (`GET api/v1/me` serves the identity) or `Gate::authorize('view', $request->user())` |
+| beam-tenancy `Http\Controllers\TenantMemberController@index` / `@roles` (2 routes; its writes already ask `manageMembers` through the Gate) | `{tenant}.view-members` | flagship | listed by 05 as R2, not in 07's space; outside the 65 above |
+| starters' `GET api/user` closure (`routes/api.php:29-31`; tower starter `:120-122`) | `user.view`, `user.{id}.view` | beam, satellite, commerce, market, tower starters | remove it (`GET api/v1/me` serves the identity) or `Gate::authorize('view', $request->user())`; the tower starter's copy is the closure row above |
 
-  One row is also a principal-side hole and should go first: tower `ThreadController@create` / `@update`
-  (`src/Api/V1/ThreadController.php:133`) loads a thread by a body `id` and saves it with no `authorize('update')`, so
-  any member can rewrite any thread. Probe H counts an `entitlement:*` middleware as a gate; 18 such flagship rows were
+  Closed in 07 (orchestrator ruling): tower `ThreadController@create` / `@update` loaded a thread by a body or route `id`
+  and saved it with no decision, so any member could rewrite any thread; tower f9dd5e7 asks `ThreadPolicy::update`
+  before any read or write (real-bearer test: flagship `ThreadWriteIsAuthorizedTest`). Probe H counts an `entitlement:*` middleware as a gate; 18 such flagship rows were
   classified separately (`flagship-entitlement-only-classified.tsv`: 10 gated below, 6 public, 2 need a name, the
   `WebSearchController@search` row above). Frame summary providers other than the conduit handler's were not each
   proven.
