@@ -99,7 +99,14 @@ refused with code `credential_scope_unnamed_decision`; a name the token lacks wi
 Both are a 403 (`Authorization\CredentialScopeRefused`, rendering `{message, code}` as JSON); `Gate::allows()` answers
 false. Inside `BaseModelPolicy` the rungs that ask no permission (the steward, the morph owner, explicit grants, the
 reach tier) answer a scoped credential only when it carries the action's or the rung's name. The listing scope
-(`scopeForUser()`) is a query scope, not a Gate decision, and is not narrowed yet.
+(`scopeForUser()`) narrows the same way: the morph owner's inherent rows need `{model}.view` or `{model}.own.view` on
+the token, the tier and grant rows `{model}.view` or `{model}.shared.view`.
+
+A check made **outside the Gate** (an inline role, membership or ownership read in a controller or middleware) asks
+the scope for its name directly: `CredentialScopeGate::carries($user, $names)` answers it, and
+`authorizeCarried($user, $decision, $names = null)` throws the same coded refusal a Gate decision gives. With no
+`$names`, the names its owner registered for `$decision` in `DecisionNames` are used. The inventory of every decision a
+token call can reach across the fleet, with its name, is [`docs/credential-scope-decision-inventory.md`](docs/credential-scope-decision-inventory.md).
 
 Unchanged: a session, a `*` token, a guest, a check for another principal, and the entitlement plane
 (`entitlement:{key}`), which is answered principal-only, permissions its definition asks included. A host's allow-all
