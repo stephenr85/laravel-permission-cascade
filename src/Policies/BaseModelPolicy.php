@@ -85,8 +85,27 @@ class BaseModelPolicy implements NamesDecisions
      */
     public function decisionNames(string $ability, array $arguments): ?array
     {
+        if (! $this->runsCascadeRungs($ability)) {
+            return null;
+        }
+
+        return $this->cascadeRungNames($ability, $arguments);
+    }
+
+    /**
+     * Every rung name of one of the cascade's verbs (`{model}.{action}`, `{model}.own.{action}`, and for a persisted
+     * instance `{model}.{id}.{action}`, `{model}.shared.{action}`), or null for a verb the cascade does not own. A
+     * subclass that overrides a verb but still runs the cascade's rungs inside it (a guard, then `parent::view()` or
+     * `canCascade()`) declares them by returning this from its own {@see decisionNames()} for that verb, and guards
+     * any no-permission arm it adds with {@see scopeAdmitsRung()} (credential-scope 05).
+     *
+     * @param  array<int, mixed>  $arguments
+     * @return list<string>|null
+     */
+    protected function cascadeRungNames(string $ability, array $arguments): ?array
+    {
         $action = static::CASCADE_ACTIONS[$ability] ?? null;
-        if ($action === null || ! $this->runsCascadeRungs($ability)) {
+        if ($action === null) {
             return null;
         }
 

@@ -263,6 +263,27 @@ it('names an overridden cascade verb by its derived names only, never by the run
         ->and((new ScopedOpenPostPolicy)->decisionNames('update', [$foreign]))->toContain('post.own.update', 'post.shared.update');
 });
 
+it('lets a subclass that guards a verb and still runs the rungs declare their names (credential-scope 05)', function () {
+    // tower ThreadPolicy::view refuses a session thread, then defers to the cascade's rungs: it declares the rung names
+    // through cascadeRungNames(), so a token carrying `post.own.view` reaches the own rung, and the guard still decides.
+    Gate::policy(Post::class, ScopedGuardedPostPolicy::class);
+    grantPermission($this->member, 'post.own.view');
+    $this->actingAs($this->member);
+    $mine = Post::create(['name' => 'mine', 'user_id' => $this->member->id, 'visibility' => 'private']);
+    $guarded = Post::create(['name' => 'guarded', 'user_id' => $this->member->id, 'visibility' => 'private']);
+    $foreign = Post::create(['name' => 'foreign', 'user_id' => $this->other->id, 'visibility' => 'private']);
+
+    bindScope(['post.own.view']);
+    expect(Gate::allows('view', $mine))->toBeTrue()
+        ->and(Gate::allows('view', $guarded))->toBeFalse()
+        ->and(Gate::allows('view', $foreign))->toBeFalse();
+    bindScope(['widgets.export']);
+    expect(Gate::inspect('view', $mine)->code())->toBe(CredentialScopeRefusal::NOT_CARRIED);
+
+    expect((new ScopedGuardedPostPolicy)->decisionNames('view', [$mine]))->toContain('post.own.view', 'post.shared.view')
+        ->and((new ScopedOpenPostPolicy)->decisionNames('view', [$mine]))->toBeNull();
+});
+
 it('names a configured verb answered by an override, or replaced by a subclass, by its derived names only', function () {
     $widget = Widget::create(['name' => 'w']);
 
@@ -492,6 +513,20 @@ class ScopedOpenPostPolicy extends PostPolicy
     public function view(?Illuminate\Contracts\Auth\Authenticatable $user, Model $instance)
     {
         return $user !== null;
+    }
+}
+
+/** Guards `view`, then runs the cascade's rungs, and declares their names (as tower ThreadPolicy does). */
+class ScopedGuardedPostPolicy extends PostPolicy
+{
+    public function view(?Illuminate\Contracts\Auth\Authenticatable $user, Model $instance)
+    {
+        return $instance->name !== 'guarded' && parent::view($user, $instance);
+    }
+
+    public function decisionNames(string $ability, array $arguments): ?array
+    {
+        return $ability === 'view' ? $this->cascadeRungNames($ability, $arguments) : parent::decisionNames($ability, $arguments);
     }
 }
 
