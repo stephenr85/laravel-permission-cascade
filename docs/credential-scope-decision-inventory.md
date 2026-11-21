@@ -194,6 +194,7 @@ correctly), **exempt** (ADR 0006's exemptions), **open** (a scoped token passes 
 | calcucrypt, calcucrypt-tutorial | `CalculatorPolicy`, `PostPolicy`, `SavedInputPolicy`; `ux.author`, `beam-docs.publish` | named |
 | starters (beam, satellite, commerce, market, tower) | `beam-docs.publish`, `ux.{realm}.author`, `site.edit`, `commerce.manage`, `market-extensions.install`, `installed-extensions.*`, `market-connections.sync` (Root or role inside: the principal half) | named (flat) |
 | laravel-tower-starter example `ServiceRequestPolicy` | derived | named |
+| laravel-tower-starter operator API door (`api/operator/*`, was `can:entitlement:os.operate` alone) | `operator.access` (registered under `require.operator`, `RequireOperatorAccess`, offered); the entitlement stays the principal half | named (08 review cs08, laravel-tower-starter 52ae436) |
 | thingsontv | `Role` middleware, `isAdmin()`, `viewHorizon` | not a beam-accounts host: no scope source is bound, so no token is scoped there (ADR 0006 rule 3 makes that a 04/06 question) |
 | fable-legacy | its policies, `before`, 27 inline reads | out of scope (credential-scope 04 ruling: not a beam host) |
 | rushing/* domain packages (`augmentation-loop`, `commerce`, `notification-status`, `postgres-rls`, `surgeon`), schemastud/*, conduit-ecfr, composition / knowledge spines, satellite-training | "Policy" domain objects only | no decision (probe A hits; B–F none) |
@@ -352,7 +353,7 @@ Still open:
 
 ### Route-first re-run (credential-scope 08)
 
-Probe v2 (`logs/08/r6/bin/route-sweep-08.php`) is 05's probe H with four changes:
+Probe v2 (`logs/08/r6/bin/route-sweep-08.php`) is 05's probe H with six changes:
 - it knows the named checks 07 and 08 added outside the Gate (`BearerDecisions::authorize(`, `BearerReads::authorize(`,
   `TeamMemberDecisions::authorize(`, `TokenManagement::authorize(`, `->authorizeRosterRead(`);
 - it reads a closure route's source;
@@ -361,16 +362,23 @@ Probe v2 (`logs/08/r6/bin/route-sweep-08.php`) is 05's probe H with four changes
 - it reads an invokable controller's `__invoke`;
 - bare words no longer count. A bare `Policy` matched `$factPolicy` (`StudioController@generateComposition`), and a bare
   `inspect(` matched `$budget->inspect(` (a spend check, `BudgetController@show`). Only a policy class reference,
-  `getPolicyFor(`, an `ability:` argument or beam's read guard counts now.
+  `getPolicyFor(`, an `ability:` argument or beam's read guard counts now;
+- **an entitlement establishes only the principal half** (review cs08). `can:entitlement:*`, `entitlement:*` and an
+  `…('entitlement:…')` check in a method body are answered principal-only under a scope (C4), so they gate nothing for
+  a scoped token. A route behind an entitlement alone is a candidate (`entitlement-only`), like an ungated one.
 
 These changes exposed six methods 05 and 07 had counted gated (unit: methods): `CapabilityController@index`,
 `StudioController@generateComposition`, `EvalRunController@index`, `CoherenceReadController@show`,
-`SubscriptionController@show` and `BudgetController@show`, all named above, plus the write-pipeline and helper-held
-steps classified below. The same probe on the base flagship (c716d0d8, before 08) reports 94 unclassified candidate
-routes; at the 08 candidate it reports 0.
+`SubscriptionController@show` and `BudgetController@show`, all named above. Change 6 exposed the **tower starter's
+operator API** (`api/operator/*`, 26 routes, operator reads and writes such as the conduit rate and tenant suspension),
+enclosed by `can:entitlement:os.operate` alone. It now has a named door, `RequireOperatorAccess`: the entitlement as
+the principal half, and the registered name `operator.access` under `require.operator`, offered, as the flagship's
+`require.root` asks (laravel-tower-starter 52ae436). Change 6 also exposed the realm manifest
+(`RealmFrameManifestController`), whose only step was `Gate::forUser(…)`. It is gated-below: it lists only the resources
+`ResourceAuthorizer` admits through narrowed Gate decisions, metadata only.
 
 Candidates are classified by `logs/08/r6/bin/classify-08.py`:
-- a 07 class is kept where 07 closed the route;
+- a 07 class is kept where 07 closed the route, 07's entitlement-only classification included;
 - a route 07 left needing a name must now show a step, or name the helper that holds it;
 - anything else is UNCLASSIFIED.
 
@@ -378,19 +386,21 @@ Result (unit: bearer routes; `route-first-08-summary.txt`):
 
 | host | probed at | candidates | unclassified |
 |---|---|---|---|
-| flagship | space cs08b, linked to the 08 worktrees | 139: public-by-design 76, gated-below 42, in-07 8, named-07 6, named-08 4 (embeddings, asked in `query()`), principal-only offer 2 (`HostRealmsController`), self-token 1 | **0** |
-| tower starter | cs08b, linked to the 08 tower and beam-accounts | 23 | **0** |
-| tower starter | its committed lock (tower d87fc648, beam-accounts ff61517, both before 07, 08a and 08) | 66 | 40, each a route 08 names. They close when the starter repins (ticket 06) |
-| beam, satellite, commerce, market starters | cs08b | 0 (`api/user` now asks the Gate) | **0** |
+| flagship | space cs08b, lock-installed candidate (tower 7608a6eb, beam-accounts a90cced5, beam-commerce 47f7e962, beam-tenancy 7116d4cf) | 156, 16 of them behind an entitlement only: public-by-design 82, gated-below 53, in-07 8, named-07 6, named-08 4 (embeddings, asked in `query()`), principal-only offer 2 (`HostRealmsController`), self-token 1 | **0** |
+| flagship base | c716d0d8, before 08 | 260 | 96 |
+| tower starter | cs08b at 52ae436, linked to the 08 tower and beam-accounts | 32, 8 of them behind an entitlement only (07's classes) | **0** |
+| tower starter | its committed lock (tower d87fc648, beam-accounts ff61517, before 07, 08a and 08), with the 08 operator door | 78 | 43, each a tower or beam-accounts route 08 names. They close when the starter repins (ticket 06). The operator API is behind the door at this lock too |
+| beam, satellite, commerce, market starters | cs08b | 0 (`api/user` asks the Gate in the closure) | **0** |
 | audiostud, calcucrypt, fable, numero, schemastud, splicewire, stephenrushing | live checkouts | 0 bearer routes. numero's five `auth:api` routes sit outside the `sanctum` filter and keep 07's `ApiCaller::can` class | **0** |
 | standwell, beam-pilot | live checkouts | boot fails on stale live vendor, as in 07. 07's read at origin stands: 0 bearer routes | **0** |
 
-The 13 candidates that comment-stripping and invokables exposed on the flagship are classified by hand, each with its helper:
+The candidates these changes exposed on the flagship are classified by hand, each with its helper:
 - the write pipeline's `GateWriteGate` (fragment URL batch create and update, golden set create and update, model
   status update): gated-below;
 - `CompletionController@completionStream`: `prepareTurn()` asks `authorize('update', $thread)`;
 - `ThreadController@create`, which delegates to 07's `update`;
 - the market reporting doors, through 07's `TenantReportingSite`;
+- `RealmFrameManifestController`: gated-below, as above;
 - `RouteManifestController` (declared route metadata) and the tower starter's `TenancyIdentityController`:
   public-by-design;
 - `HostRealmsController`: the realm switcher's offer, computed on the principal-only entitlement plane; every realm door
@@ -413,7 +423,7 @@ Added by credential-scope 08, each offered to the widest set:
 - beam-commerce's `credits.view` and `auto-reload.view`;
 - beam-accounts' `{team}.manage-invitations` and `invitation.view`;
 - beam-tenancy's `{tenant}.view-members`;
-- the flagship's `exec.access` (`require.exec`);
+- the flagship's `exec.access` (`require.exec`), and the tower starter's `operator.access` (`require.operator`);
 - on the starters, the user policy's `view` (`appmodelsuser.view` until the starters alias `user`).
 
 Added by credential-scope 07, each offered to the widest set: `{key}.view` for every particle resource (a read the guard
