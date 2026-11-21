@@ -144,6 +144,7 @@ correctly), **exempt** (ADR 0006's exemptions), **open** (a scoped token passes 
 | filter options sources `AgentOptionsSource:18`, `CircuitOptionsSource:18` (owner-filtered by `user_id`), `SiloOptionsSource`, `TagOptionsSource`: returned by `ResourceFilters:123` after only the parent resource is authorized (`:99`) | intended: the related model's `agent.view` / `agent.own.view`, `circuit.view` / `circuit.own.view`, `silo.view`, `tag.view` (owner filter kept), registered under `filter-options:{ref}` and asked by beam `ResourceFilters::options()` | named (07 R5, tower c4138d4 + beam 651dca1) |
 | `Frame\ConduitResourceHandler` index, show, summary (custom Frame handler); update asks its response's read before the first write | `conduits.view`, `conduit.view`, `conduit.{id}.view` via `ResourceReadGuard::authorizeScopedRead()` | named (07 R5, tower c4138d4; update order a8407cd) |
 | `Api\V1\ThreadController@create` / `@update` (a thread named by a body or route `id`, saved with no decision: any member rewrote any thread; found by R6) | `thread.update`, `thread.{id}.update`, `thread.own.update` (ThreadPolicy::update, asked before any write) | named (07, orchestrator ruling, tower f9dd5e7) |
+| `Api\V1\CapabilityController@index` (`GET capabilities?surface=…`; the ladder carries the tenant's own conduit overlay; a satellite reads it with its device-paired token). 05/07's probe counted it gated only because a word in its docblock matched | `capability.view` (offered) | named (08, tower bb89ab1a) |
 | `Navigation\Gates\AccessGate:65` Root nav token | an offer, not an authority | not reachable as a grant |
 | `PolishPolicy`, `MaterializationPolicy`, federation `*ResolutionPolicy` / `CorpusAudiencePolicy` | — | no decision (domain objects) |
 
@@ -153,7 +154,7 @@ correctly), **exempt** (ADR 0006's exemptions), **open** (a scoped token passes 
 |---|---|---|
 | `RunnerTransformPolicy` (Root arm) | `runner-transform.*` | named (#39) |
 | Root `Gate::before`; `ux.author` / manifest `viewAny` / records befores through `site.edit` | `superuser()`; the outer name, then `site.edit` | named (#39, 02) |
-| `entitlement:os.operate`, `exec.view`, `analytics.view` definitions | — | exempt (C4); the doors are named (Q1 below; an `entitlement:` particle read gate asks `{key}.view`, R1) |
+| `entitlement:os.operate`, `exec.view`, `analytics.view` definitions | — | exempt (C4); the doors are named (`require.root` `operator.access`, `require.exec` `exec.access` below; an `entitlement:` particle read gate asks `{key}.view`, R1) |
 | `analytics.destination.*`, `activity.resource.read` | themselves | named |
 | `HopController::issue` | refused for any scoped token | named (02, C9) |
 | `RequireAdminRole` (`require.admin`) and `RoleReachabilityProbe` admin arm | `tenant.administer` (registered under `require.admin`) | named (05) |
@@ -161,6 +162,7 @@ correctly), **exempt** (ADR 0006's exemptions), **open** (a scoped token passes 
 | `ChooserController` (the reader's own record) | `user.view`, `user.{id}.view` (routed through `UserPolicy::view`) | named (05) |
 | `RoleReachabilityProbe` root arm | `entitlement:os.operate` and `operator.access`, as `RequireRootRole` | named (07 Q1, app 2efe426) |
 | `RequireRootRole` (`require.root` → `entitlement:os.operate`, defined as `isRoot`) | `operator.access` (registered under `require.root`); the entitlement stays principal-only | named (07 Q1, app 2efe426) |
+| the exec (board) realm door, `routes/exec.php` (was `can:entitlement:exec.view`, defined as Root OR a board seat) | `exec.access` (registered under `require.exec`, `RequireExecBoard`); the entitlement stays principal-only | named (08, app a9f81adc8) |
 | `WorkflowExecutionAuthority:56` membership read | a refusal-only check before `Gate::forUser($principal)->authorize($ability, $subject)` (`update` / `site.edit`, narrowed); it can refuse, never admit | named (07 R2: classified, no change) |
 | `viewHorizon` (web guard) | — | fail-closed; not reachable by a bearer |
 | `HostTenant`, `TenantLandingSeats`, `routes/web.php:116` membership reads | — | not reachable (session landing) |
@@ -256,83 +258,86 @@ Still open:
   with no decision); the tower starter (`laravel-tower-starter`): 64 candidates, 42 need a name, plus its `api/user` closure (most shared
   with the flagship rows below).
 
-  **Still outstanding (review cs07 reconciliation):** of the 68 controller methods the census classified as needing a
-  name (unit: unique `Controller@method` across the flagship and the tower starter), 07 built 2 (the site report's
-  heartbeat and uninstall, beam-market ee4a3fe) and closed 1 (`Tower\Api\V1\ThreadController@create` / `@update`,
-  tower f9dd5e7: ThreadPolicy::update before any write), so **65 remain**, listed below. In routes: the flagship's 99
-  less the 4 site-report routes and the 2 thread routes leaves **93**; the tower starter's 43 rows are unchanged. Each
-  unbuilt method with its proposed name (the file:line and the proposed fix per route are in `flagship-215-summary.txt`
-  and `other-hosts-summary.txt`):
+  **Closed in 08 (credential-scope 08, space cs08b).** The 65 controller methods 07 left needing a name (unit: unique
+  `Controller@method` across the flagship and the tower starter; 93 flagship routes, 43 tower-starter rows), the
+  beam-tenancy roster reads and every starter's `GET api/user` closure are each named below, none closed instead: no
+  route here is public or principal-only by design (each reads or writes tenant or user rows). 15 of the 65 (the two
+  `ApiTokenController`s) were 08a's. Each asks only the token half (the cascade's `authorizeCarried()`, or a Gate
+  decision); the principal half (membership, a row scope, the policy the method already asked) is unchanged. Tower's
+  routes ask through `Authorization\BearerDecisions`, which resolves a name at call time through `PermissionNamer` (a
+  literal segment for a model without a morph alias) and offers every class-level name to the widest set; a host renames
+  one in `DecisionNames`. Each row's refusal is proved with a real scoped bearer, and each refusal branch mutated once
+  fails a test (logs `~/Workspaces/tmp/evidence/credential-scope/logs/08/`).
 
-| controller method | proposed name | host | where (origin) |
+| controller method | name a scoped token carries | host | status |
 |---|---|---|---|
-| `Tower\Api\V1\DereferenceController@show` | `fragment.view, fragment.{id}.view` | flagship, tower starter | tower@d87fc648 src/Api/V1/DereferenceController.php:53-55 |
-| `Tower\Api\V1\EmbeddingController@index` | `embedding.view` | flagship, tower starter | tower@d87fc648 src/Api/V1/EmbeddingController.php:145 |
-| `Tower\Api\V1\EmbeddingController@similar` | `embedding.view` | flagship, tower starter | tower@d87fc648 src/Api/V1/EmbeddingController.php:110 |
-| `Tower\Api\V1\HybridSearchController@search` | `fragment.view` | flagship, tower starter | tower@d87fc648 src/Api/V1/HybridSearchController.php:46-67 |
-| `Tower\Api\V1\KnowledgeGraphController@subgraph` | `fragment.view` | flagship, tower starter | tower@d87fc648 src/Api/V1/KnowledgeGraphController.php:77 |
-| `Tower\Api\V1\KnowledgeGraphController@shortestPath` | `fragment.view` | flagship, tower starter | tower@d87fc648 src/Api/V1/KnowledgeGraphController.php:119 |
-| `Tower\Api\V1\KnowledgeGraphController@detectCycles` | `fragment.view` | flagship, tower starter | tower@d87fc648 src/Api/V1/KnowledgeGraphController.php:161 |
-| `Tower\Api\V1\KnowledgeGraphController@stats` | `fragment.view` | flagship, tower starter | tower@d87fc648 src/Api/V1/KnowledgeGraphController.php:174 |
-| `Tower\Api\V1\KnowledgeGraphController@types` | `fragment.view` | flagship, tower starter | tower@d87fc648 src/Api/V1/KnowledgeGraphController.php:190 |
-| `Tower\Api\V1\KnowledgeGraphController@entities` | `fragment.view` | flagship, tower starter | tower@d87fc648 src/Api/V1/KnowledgeGraphController.php:210 |
-| `Tower\Api\V1\KnowledgeGraphController@describe` | `fragment.view` | flagship, tower starter | tower@d87fc648 src/Api/V1/KnowledgeGraphController.php:240 |
-| `Tower\Api\V1\KnowledgeGraphController@query` | `fragment.view` | flagship, tower starter | tower@d87fc648 src/Api/V1/KnowledgeGraphController.php:276 |
-| `Tower\Api\V1\KnowledgeGraphController@fragmentTriples` | `fragment.view, fragment.{id}.view` | flagship, tower starter | tower@d87fc648 src/Api/V1/KnowledgeGraphController.php:295 |
-| `Tower\Api\V1\KnowledgeGraphController@reextract` | `fragment.update, fragment.{id}.update` | flagship, tower starter | tower@d87fc648 src/Api/V1/KnowledgeGraphController.php:313-315 |
-| `Tower\Api\V1\FragmentUrlBatchController@index` | `fragment-url-batch.view (+ .own.view rows)` | flagship | tower@d87fc648 src/Api/V1/FragmentUrlBatchController.php:42 |
-| `Tower\Api\V1\FragmentUrlBatchController@show` | `fragment-url-batch.view, fragment-url-batch.{id}.view` | flagship | tower@d87fc648 src/Api/V1/FragmentUrlBatchController.php:66 |
-| `Tower\Determination\Http\Controllers\DeterminationOverviewController@show` | `entity.view (+ .own.view)` | flagship, tower starter | tower@d87fc648 src/Determination/Http/Controllers/DeterminationOverviewController.php:30-34 |
-| `Tower\Api\V1\GraphOverviewController@show` | `concept.view` | flagship, tower starter | tower@d87fc648 src/Api/V1/GraphOverviewController.php:32-41 |
-| `Tower\Composition\Http\Controllers\StudioController@indexIdeas` | `composition-idea.view` | flagship, tower starter | tower@d87fc648 src/Composition/Http/Controllers/StudioController.php:43 |
-| `Tower\Composition\Http\Controllers\StudioController@createIdea` | `composition-idea.create` | flagship, tower starter | tower@d87fc648 src/Composition/Http/Controllers/StudioController.php:69 |
-| `Tower\Composition\Http\Controllers\StudioController@showIdea` | `composition-idea.view, composition-idea.{id}.view` | flagship, tower starter | tower@d87fc648 src/Composition/Http/Controllers/StudioController.php:48 |
-| `Beam\Commerce\Http\Controllers\CreditsController@show` | `credits.view` | flagship | beam-commerce@599fac5 src/Http/Controllers/CreditsController.php:63-73 |
-| `Beam\Commerce\Http\AutoReloadConfigController@show` | `auto-reload.view` | flagship | beam-commerce@599fac5 src/Http/AutoReloadConfigController.php:65-68 |
-| `Beam\Commerce\Http\AutoReloadConfigController@activity` | `auto-reload.view` | flagship | beam-commerce@599fac5 src/Http/AutoReloadConfigController.php:133 |
-| `Tower\Composition\Http\Controllers\StudioController@indexBriefs` | `composition-brief.view` | flagship, tower starter | tower@d87fc648 src/Composition/Http/Controllers/StudioController.php:82 |
-| `Tower\Composition\Http\Controllers\StudioController@createBrief` | `composition-brief.create (+ composition-idea.{id}.update)` | flagship, tower starter | tower@d87fc648 src/Composition/Http/Controllers/StudioController.php:105-107 |
-| `Tower\Composition\Http\Controllers\StudioController@showBrief` | `composition-brief.view, composition-brief.{id}.view` | flagship, tower starter | tower@d87fc648 src/Composition/Http/Controllers/StudioController.php:87 |
-| `Tower\Api\V1\EvalRunController@store` | `context-scope.{id}.view + eval-run.create` | flagship | tower@d87fc648 src/Api/V1/EvalRunController.php:147 |
-| `Tower\Api\V1\GoldenSetController@index` | `context-scope.view (+ .own.view)` | flagship | tower@d87fc648 src/Api/V1/GoldenSetController.php:46-49 |
-| `Tower\Api\V1\ReleaseController@index` | `composition.own.view (+ composition.view)` | flagship | tower@d87fc648 src/Api/V1/ReleaseController.php:22 |
-| `Tower\Api\V1\EntityIntakeController@store` | `entity.create` | flagship | tower@d87fc648 src/Api/V1/EntityIntakeController.php:122 |
-| `Tower\Api\V1\EntityIntakeController@completeness` | `entity.view, entity.{id}.view` | flagship | tower@d87fc648 src/Api/V1/EntityIntakeController.php:197 |
-| `Tower\Api\V1\EntityIntakeController@runs` | `entity.view, entity.{id}.view` | flagship | tower@d87fc648 src/Api/V1/EntityIntakeController.php:323 |
-| `Tower\Api\V1\EntityIntakeController@reassess` | `entity.update, entity.{id}.update` | flagship | tower@d87fc648 src/Api/V1/EntityIntakeController.php:339 |
-| `Tower\Api\V1\ModelStatusController@index` | `model-status.view (+ .own.view)` | flagship | tower@d87fc648 src/Api/V1/ModelStatusController.php:43 |
-| `Tower\Api\V1\ModelStatusController@show` | `model-status.view, model-status.{id}.view` | flagship | tower@d87fc648 src/Api/V1/ModelStatusController.php:62 |
-| `Tower\Api\V1\TenantInvitationController@index` | `invitation.view` | flagship | tower@d87fc648 src/Api/V1/TenantInvitationController.php:114 |
-| `Tower\Api\V1\ApiTokenController@index` | `personal-access-token.view` | flagship | tower@d87fc648 src/Api/V1/ApiTokenController.php:64 |
-| `Tower\Api\V1\ApiTokenController@store` | `personal-access-token.create` | flagship | tower@d87fc648 src/Api/V1/ApiTokenController.php:122 |
-| `Tower\Api\V1\ApiTokenController@renew` | `personal-access-token.update, personal-access-token.{id}.update` | flagship | tower@d87fc648 src/Api/V1/ApiTokenController.php:250 |
-| `Tower\Api\V1\ApiTokenController@rotate` | `personal-access-token.update, personal-access-token.{id}.update` | flagship | tower@d87fc648 src/Api/V1/ApiTokenController.php:284 |
-| `Tower\Api\V1\ApiTokenController@destroyOtherSessions` | `personal-access-token.delete` | flagship | tower@d87fc648 src/Api/V1/ApiTokenController.php:382-385 |
-| `Tower\Api\V1\ApiTokenController@destroy` | `personal-access-token.delete, personal-access-token.{id}.delete` | flagship | tower@d87fc648 src/Api/V1/ApiTokenController.php:208 |
-| `Tower\Api\V1\ApiTokenController@archive` | `personal-access-token.update, personal-access-token.{id}.update` | flagship | tower@d87fc648 src/Api/V1/ApiTokenController.php:174 |
-| `Tower\Api\V1\SystemModelsController@show` | `system-models.view` | flagship, tower starter | tower@d87fc648 src/Api/V1/SystemModelsController.php:58-90 |
-| `Tower\Api\V1\SystemModelsController@candidates` | `system-models.view` | flagship, tower starter | tower@d87fc648 src/Api/V1/SystemModelsController.php:152-161 |
-| `Tower\Api\V1\SystemModelsController@previewSpeech` | `system-models.preview-speech` | flagship, tower starter | tower@d87fc648 src/Api/V1/SystemModelsController.php:206 |
-| `Tower\Api\V1\SystemModelsController@generateVideo` | `video-job.create` | flagship, tower starter | tower@d87fc648 src/Api/V1/SystemModelsController.php:234 |
-| `Tower\Api\V1\SystemModelsController@videoJobs` | `video-job.view` | flagship, tower starter | tower@d87fc648 src/Api/V1/SystemModelsController.php:252 |
-| `Tower\Api\V1\SystemModelsController@videoJob` | `video-job.view, video-job.{id}.view` | flagship, tower starter | tower@d87fc648 src/Api/V1/SystemModelsController.php:270 |
-| `Tower\Api\V1\SystemModelsController@estimateEmbeddingSwitch` | `system-models.view` | flagship, tower starter | tower@d87fc648 src/Api/V1/SystemModelsController.php:316 |
-| `Beam\Accounts\Http\Controllers\Account\ApiTokenController@permissions` | `personal-access-token.create` | tower starter | beam-accounts@ff61517 src/Http/Controllers/Account/ApiTokenController.php:110 |
-| `Beam\Accounts\Http\Controllers\Account\ApiTokenController@index` | `personal-access-token.view` | tower starter | beam-accounts@ff61517 src/Http/Controllers/Account/ApiTokenController.php:89 |
-| `Beam\Accounts\Http\Controllers\Account\ApiTokenController@store` | `personal-access-token.create` | tower starter | beam-accounts@ff61517 src/Http/Controllers/Account/ApiTokenController.php:131 |
-| `Beam\Accounts\Http\Controllers\Account\ApiTokenController@renew` | `personal-access-token.update, personal-access-token.{id}.update` | tower starter | beam-accounts@ff61517 src/Http/Controllers/Account/ApiTokenController.php:155 |
-| `Beam\Accounts\Http\Controllers\Account\ApiTokenController@rotate` | `personal-access-token.update, personal-access-token.{id}.update` | tower starter | beam-accounts@ff61517 src/Http/Controllers/Account/ApiTokenController.php:183 |
-| `Beam\Accounts\Http\Controllers\Account\ApiTokenController@destroyOtherSessions` | `personal-access-token.delete` | tower starter | beam-accounts@ff61517 src/Http/Controllers/Account/ApiTokenController.php:295 |
-| `Beam\Accounts\Http\Controllers\Account\ApiTokenController@destroy` | `personal-access-token.delete, personal-access-token.{id}.delete` | tower starter | beam-accounts@ff61517 src/Http/Controllers/Account/ApiTokenController.php:263 |
-| `Beam\Accounts\Http\Controllers\Account\ApiTokenController@archive` | `personal-access-token.update, personal-access-token.{id}.update` | tower starter | beam-accounts@ff61517 src/Http/Controllers/Account/ApiTokenController.php:232 |
-| `Beam\Accounts\Http\Controllers\Account\TeamInvitationController@index` | `invitation.view` | tower starter | beam-accounts@ff61517 src/Http/Controllers/Account/TeamInvitationController.php:59 |
-| `Beam\Accounts\Http\Controllers\Account\TeamInvitationController@send` | `{team-model}.manage-invitations` | tower starter | beam-accounts@ff61517 src/Http/Controllers/Account/TeamInvitationController.php:82 |
-| `Beam\Accounts\Http\Controllers\Account\TeamInvitationController@resend` | `{team-model}.manage-invitations` | tower starter | beam-accounts@ff61517 src/Http/Controllers/Account/TeamInvitationController.php:104 |
-| `Beam\Accounts\Http\Controllers\Account\TeamInvitationController@revoke` | `{team-model}.manage-invitations` | tower starter | beam-accounts@ff61517 src/Http/Controllers/Account/TeamInvitationController.php:132 |
-| `Tower\Api\V1\WebSearchController@search` | `web-search.query` | tower starter | tower@d87fc648 src/Api/V1/WebSearchController.php:31-46 |
-| `Closure [closure-or-invokable: outside the candidate filter, added]` | `user.view, user.{id}.view` | tower starter | routes/api.php:29-31 (tower |
-| beam-tenancy `Http\Controllers\TenantMemberController@index` / `@roles` (2 routes; its writes already ask `manageMembers` through the Gate) | `{tenant}.view-members` | flagship | listed by 05 as R2, not in 07's space; outside the 65 above |
-| starters' `GET api/user` closure (`routes/api.php:29-31`; tower starter `:120-122`) | `user.view`, `user.{id}.view` | beam, satellite, commerce, market, tower starters | remove it (`GET api/v1/me` serves the identity) or `Gate::authorize('view', $request->user())`; the tower starter's copy is the closure row above |
+| `Tower\Api\V1\DereferenceController@show` | `fragment.view` (class-level: the dereferencer keys on the node id, not the record key) | flagship, tower starter | named (08, tower f7060130) |
+| `Tower\Api\V1\EmbeddingController@index` | `embedding.view` (asked in `query()`) | flagship, tower starter | named (08, tower f7060130) |
+| `Tower\Api\V1\EmbeddingController@similar` | `embedding.view` (asked in `query()`) | flagship, tower starter | named (08, tower f7060130) |
+| `Tower\Api\V1\HybridSearchController@search` | `fragment.view` | flagship, tower starter | named (08, tower f7060130) |
+| `Tower\Api\V1\KnowledgeGraphController@subgraph` | `fragment.view` | flagship, tower starter | named (08, tower f7060130) |
+| `Tower\Api\V1\KnowledgeGraphController@shortestPath` | `fragment.view` | flagship, tower starter | named (08, tower f7060130) |
+| `Tower\Api\V1\KnowledgeGraphController@detectCycles` | `fragment.view` | flagship, tower starter | named (08, tower f7060130) |
+| `Tower\Api\V1\KnowledgeGraphController@stats` | `fragment.view` | flagship, tower starter | named (08, tower f7060130) |
+| `Tower\Api\V1\KnowledgeGraphController@types` | `fragment.view` | flagship, tower starter | named (08, tower f7060130) |
+| `Tower\Api\V1\KnowledgeGraphController@entities` | `fragment.view` | flagship, tower starter | named (08, tower f7060130) |
+| `Tower\Api\V1\KnowledgeGraphController@describe` | `fragment.view` | flagship, tower starter | named (08, tower f7060130) |
+| `Tower\Api\V1\KnowledgeGraphController@query` | `fragment.view` | flagship, tower starter | named (08, tower f7060130) |
+| `Tower\Api\V1\KnowledgeGraphController@fragmentTriples` | `fragment.view`, `fragment.{id}.view` | flagship, tower starter | named (08, tower f7060130) |
+| `Tower\Api\V1\KnowledgeGraphController@reextract` | `fragment.update`, `fragment.{id}.update` (before any job is queued) | flagship, tower starter | named (08, tower f7060130) |
+| `Tower\Api\V1\FragmentUrlBatchController@index` | `fragment-url-batch.view`, `fragment-url-batch.own.view` (the list holds only the caller's own batches) | flagship | named (08, tower f7060130) |
+| `Tower\Api\V1\FragmentUrlBatchController@show` | `fragment-url-batch.view`, `fragment-url-batch.{id}.view` (no owner rung: the read is by id) | flagship | named (08, tower f7060130) |
+| `Tower\Determination\Http\Controllers\DeterminationOverviewController@show` | `entity.view` | flagship, tower starter | named (08, tower d244ae07) |
+| `Tower\Api\V1\GraphOverviewController@show` | `concept.view` | flagship, tower starter | named (08, tower f7060130) |
+| `Tower\Composition\Http\Controllers\StudioController@indexIdeas` | `composition-idea.view` | flagship, tower starter | named (08, tower d244ae07) |
+| `Tower\Composition\Http\Controllers\StudioController@createIdea` | `composition-idea.create` | flagship, tower starter | named (08, tower d244ae07) |
+| `Tower\Composition\Http\Controllers\StudioController@showIdea` | `composition-idea.view`, `composition-idea.{id}.view` | flagship, tower starter | named (08, tower d244ae07) |
+| `Beam\Commerce\Http\Controllers\CreditsController@show` | `credits.view` (registered) | flagship | named (08, beam-commerce 24f6f12) |
+| `Beam\Commerce\Http\AutoReloadConfigController@show` | `auto-reload.view` (registered) | flagship | named (08, beam-commerce 24f6f12) |
+| `Beam\Commerce\Http\AutoReloadConfigController@activity` | `auto-reload.view` (registered) | flagship | named (08, beam-commerce 24f6f12) |
+| `Tower\Composition\Http\Controllers\StudioController@indexBriefs` | `composition-brief.view` | flagship, tower starter | named (08, tower d244ae07) |
+| `Tower\Composition\Http\Controllers\StudioController@createBrief` | `composition-brief.create`, then the idea's `composition-idea.update` / `composition-idea.{id}.update` before attaching | flagship, tower starter | named (08, tower d244ae07) |
+| `Tower\Composition\Http\Controllers\StudioController@showBrief` | `composition-brief.view`, `composition-brief.{id}.view` | flagship, tower starter | named (08, tower d244ae07) |
+| `Tower\Api\V1\EvalRunController@store` | `eval-run.create`, then the golden set's `context-scope.view` / `context-scope.{id}.view` before any run | flagship | named (08, tower d244ae07) |
+| `Tower\Api\V1\GoldenSetController@index` | `context-scope.view` | flagship | named (08, tower d244ae07) |
+| `Tower\Api\V1\ReleaseController@index` | `composition.view`, `composition.own.view` (only the caller's own compositions' cells) | flagship | named (08, tower d244ae07) |
+| `Tower\Api\V1\EntityIntakeController@store` | `entity.create` | flagship | named (08, tower d244ae07) |
+| `Tower\Api\V1\EntityIntakeController@completeness` | `entity.view`, `entity.{id}.view` | flagship | named (08, tower d244ae07) |
+| `Tower\Api\V1\EntityIntakeController@runs` | `entity.view`, `entity.{id}.view` | flagship | named (08, tower d244ae07) |
+| `Tower\Api\V1\EntityIntakeController@reassess` | `entity.update`, `entity.{id}.update` | flagship | named (08, tower d244ae07) |
+| `Tower\Api\V1\ModelStatusController@index` | `model-status.view` | flagship | named (08, tower d244ae07) |
+| `Tower\Api\V1\ModelStatusController@show` | `model-status.view`, `model-status.{id}.view` | flagship | named (08, tower d244ae07) |
+| `Tower\Api\V1\TenantInvitationController@index` | `invitation.view` | flagship | named (08, tower d244ae07) |
+| `Tower\Api\V1\ApiTokenController@index` | `personal-access-token.view` (registered) | flagship | named (08a, tower 50188b8a: beam-accounts `TokenManagement`, the issuer's authority rule) |
+| `Tower\Api\V1\ApiTokenController@store` | `personal-access-token.create` (registered) | flagship | named (08a, tower 50188b8a: beam-accounts `TokenManagement`, the issuer's authority rule) |
+| `Tower\Api\V1\ApiTokenController@renew` | `personal-access-token.update, personal-access-token.{id}.update` (registered) | flagship | named (08a, tower 50188b8a: beam-accounts `TokenManagement`, the issuer's authority rule) |
+| `Tower\Api\V1\ApiTokenController@rotate` | `personal-access-token.update, personal-access-token.{id}.update` (registered) | flagship | named (08a, tower 50188b8a: beam-accounts `TokenManagement`, the issuer's authority rule) |
+| `Tower\Api\V1\ApiTokenController@destroyOtherSessions` | `personal-access-token.delete` (registered) | flagship | named (08a, tower 50188b8a: beam-accounts `TokenManagement`, the issuer's authority rule) |
+| `Tower\Api\V1\ApiTokenController@destroy` | `personal-access-token.delete, personal-access-token.{id}.delete` (registered) | flagship | named (08a, tower 50188b8a: beam-accounts `TokenManagement`, the issuer's authority rule) |
+| `Tower\Api\V1\ApiTokenController@archive` | `personal-access-token.update, personal-access-token.{id}.update` (registered) | flagship | named (08a, tower 50188b8a: beam-accounts `TokenManagement`, the issuer's authority rule) |
+| `Tower\Api\V1\SystemModelsController@show` | `system-models.view` (the writes answer through a private read, never this refusal after writing) | flagship, tower starter | named (08, tower 5b713878) |
+| `Tower\Api\V1\SystemModelsController@candidates` | `system-models.view` | flagship, tower starter | named (08, tower 5b713878) |
+| `Tower\Api\V1\SystemModelsController@previewSpeech` | `system-models.preview-speech` | flagship, tower starter | named (08, tower 5b713878) |
+| `Tower\Api\V1\SystemModelsController@generateVideo` | `video-job.create` | flagship, tower starter | named (08, tower 5b713878) |
+| `Tower\Api\V1\SystemModelsController@videoJobs` | `video-job.view` | flagship, tower starter | named (08, tower 5b713878) |
+| `Tower\Api\V1\SystemModelsController@videoJob` | `video-job.view`, `video-job.{id}.view` | flagship, tower starter | named (08, tower 5b713878) |
+| `Tower\Api\V1\SystemModelsController@estimateEmbeddingSwitch` | `system-models.view` | flagship, tower starter | named (08, tower 5b713878) |
+| `Beam\Accounts\Http\Controllers\Account\ApiTokenController@permissions` | `personal-access-token.create` (registered) | tower starter | named (08a, beam-accounts efedaff + c6a0577) |
+| `Beam\Accounts\Http\Controllers\Account\ApiTokenController@index` | `personal-access-token.view` (registered) | tower starter | named (08a, beam-accounts efedaff + c6a0577) |
+| `Beam\Accounts\Http\Controllers\Account\ApiTokenController@store` | `personal-access-token.create` (registered) | tower starter | named (08a, beam-accounts efedaff + c6a0577) |
+| `Beam\Accounts\Http\Controllers\Account\ApiTokenController@renew` | `personal-access-token.update, personal-access-token.{id}.update` (registered) | tower starter | named (08a, beam-accounts efedaff + c6a0577) |
+| `Beam\Accounts\Http\Controllers\Account\ApiTokenController@rotate` | `personal-access-token.update, personal-access-token.{id}.update` (registered) | tower starter | named (08a, beam-accounts efedaff + c6a0577) |
+| `Beam\Accounts\Http\Controllers\Account\ApiTokenController@destroyOtherSessions` | `personal-access-token.delete` (registered) | tower starter | named (08a, beam-accounts efedaff + c6a0577) |
+| `Beam\Accounts\Http\Controllers\Account\ApiTokenController@destroy` | `personal-access-token.delete, personal-access-token.{id}.delete` (registered) | tower starter | named (08a, beam-accounts efedaff + c6a0577) |
+| `Beam\Accounts\Http\Controllers\Account\ApiTokenController@archive` | `personal-access-token.update, personal-access-token.{id}.update` (registered) | tower starter | named (08a, beam-accounts efedaff + c6a0577) |
+| `Beam\Accounts\Http\Controllers\Account\TeamInvitationController@index` | `invitation.view` | tower starter | named (08, beam-accounts 1fb9d0d) |
+| `Beam\Accounts\Http\Controllers\Account\TeamInvitationController@send` | `{team}.manage-invitations`, `{team}.{id}.manage-invitations` | tower starter | named (08, beam-accounts 1fb9d0d) |
+| `Beam\Accounts\Http\Controllers\Account\TeamInvitationController@resend` | `{team}.manage-invitations`, `{team}.{id}.manage-invitations` | tower starter | named (08, beam-accounts 1fb9d0d) |
+| `Beam\Accounts\Http\Controllers\Account\TeamInvitationController@revoke` | `{team}.manage-invitations`, `{team}.{id}.manage-invitations` | tower starter | named (08, beam-accounts 1fb9d0d) |
+| `Tower\Api\V1\WebSearchController@search` | `web-search.query` | tower starter | named (08, tower 5b713878) |
+| `GET api/user` closure (tower starter `routes/api.php:120`) | the user policy's `view`: `appmodelsuser.view`, `appmodelsuser.{id}.view` on this starter (no `user` morph alias yet, a separate ticket); `user.view` where aliased | tower starter | named (08, laravel-tower-starter 98207ee): `Gate::authorize('view', $request->user())`; real scoped bearer proved, widest set offers it (30cd339) |
+| beam-tenancy `Http\Controllers\TenantMemberController@index` / `@roles` (2 routes) | `{tenant}.view-members`, `{tenant}.{id}.view-members` (derived from `viewMembers`, offered) | flagship | named (08, beam-tenancy 4a11286; lock pins cascade 1f34f7ba in 7116d4c) |
+| the beam, satellite, commerce and market starters' `GET api/user` closure (`routes/api.php:29`) | the user policy's `view` (`appmodelsuser.view` / `appmodelsuser.{id}.view` on these starters, no `user` alias) | beam, satellite, commerce, market starters | routed through the Gate (08: c800d47, 3880441, daf8a5b, b04cb1b). **It narrows only after these starters repin:** their locks hold cascade 0709059, older than `CredentialScopeGate`, so nothing narrows any scoped token there today; the repin and its fleet6 proof are ticket 06's |
 
   Closed in 07 (orchestrator ruling): tower `ThreadController@create` / `@update` loaded a thread by a body or route `id`
   and saved it with no decision, so any member could rewrite any thread; tower f9dd5e7 asks `ThreadPolicy::update`
@@ -341,6 +346,43 @@ Still open:
   `WebSearchController@search` row above). Frame summary providers other than the conduit handler's were not each
   proven.
 
+### Route-first re-run (credential-scope 08)
+
+Probe v2 (`logs/08/r6/bin/route-sweep-08.php`) is 05's probe H with four changes:
+- it knows the named checks 07 and 08 added outside the Gate (`BearerDecisions::authorize(`, `BearerReads::authorize(`,
+  `TeamMemberDecisions::authorize(`, `TokenManagement::authorize(`, `->authorizeRosterRead(`);
+- it reads a closure route's source;
+- it strips comments before matching. 05's pattern matched `Policy` and `ability` in docblocks, so a method whose only
+  "step" was prose counted as gated. That is how `CapabilityController@index` was missed;
+- it reads an invokable controller's `__invoke`.
+
+Candidates are classified by `logs/08/r6/bin/classify-08.py`:
+- a 07 class is kept where 07 closed the route;
+- a route 07 left needing a name must now show a step, or name the helper that holds it;
+- anything else is UNCLASSIFIED.
+
+Result (unit: bearer routes; `route-first-08-summary.txt`):
+
+| host | probed at | candidates | unclassified |
+|---|---|---|---|
+| flagship | space cs08b, linked to the 08 worktrees | 139: public-by-design 76, gated-below 42, in-07 8, named-07 6, named-08 4 (embeddings, asked in `query()`), principal-only offer 2 (`HostRealmsController`), self-token 1 | **0** |
+| tower starter | cs08b, linked to the 08 tower and beam-accounts | 23 | **0** |
+| tower starter | its committed lock (tower d87fc648, beam-accounts ff61517, both before 07, 08a and 08) | 66 | 40, each a route 08 names. They close when the starter repins (ticket 06) |
+| beam, satellite, commerce, market starters | cs08b | 0 (`api/user` now asks the Gate) | **0** |
+| audiostud, calcucrypt, fable, numero, schemastud, splicewire, stephenrushing | live checkouts | 0 bearer routes. numero's five `auth:api` routes sit outside the `sanctum` filter and keep 07's `ApiCaller::can` class | **0** |
+| standwell, beam-pilot | live checkouts | boot fails on stale live vendor, as in 07. 07's read at origin stands: 0 bearer routes | **0** |
+
+The 13 candidates that comment-stripping and invokables exposed on the flagship are classified by hand, each with its helper:
+- the write pipeline's `GateWriteGate` (fragment URL batch create and update, golden set create and update, model
+  status update): gated-below;
+- `CompletionController@completionStream`: `prepareTurn()` asks `authorize('update', $thread)`;
+- `ThreadController@create`, which delegates to 07's `update`;
+- the market reporting doors, through 07's `TenantReportingSite`;
+- `RouteManifestController` (declared route metadata) and the tower starter's `TenancyIdentityController`:
+  public-by-design;
+- `HostRealmsController`: the realm switcher's offer, computed on the principal-only entitlement plane; every realm door
+  is itself named.
+
 ## Names a token kind may need (for 03's widest set and 04's kinds)
 
 `tenant.administer`, `tenant:provision` (Root arm), `tenants.sync` (Root arm), `concept.update` (corpus re-anchor),
@@ -348,6 +390,18 @@ Still open:
 (`rules.view`, `evidence.view`, `review-queue.view`, …), `thread.own.view` / `thread.shared.view` (thread lists). Only
 `tenant.administer` is not otherwise a permission or derivable name: it is registered in `DecisionNames` under
 `require.admin`. `PATCH /me` asks `user.update` / `user.{id}.update`.
+
+Added by credential-scope 08, each offered to the widest set:
+- tower's `BearerDecisions` names: `fragment.view` / `.update`, `embedding.view`, `concept.view`,
+  `fragment-url-batch.view` / `.own.view`, `composition-idea.view` / `.create` / `.update`, `composition-brief.view` /
+  `.create`, `entity.view` / `.create` / `.update`, `model-status.view`, `context-scope.view`, `composition.view` /
+  `.own.view`, `eval-run.create`, `invitation.view`, `system-models.view` / `.preview-speech`, `video-job.view` /
+  `.create`, `web-search.query`, `capability.view`;
+- beam-commerce's `credits.view` and `auto-reload.view`;
+- beam-accounts' `{team}.manage-invitations` and `invitation.view`;
+- beam-tenancy's `{tenant}.view-members`;
+- the flagship's `exec.access` (`require.exec`);
+- on the starters, the user policy's `view` (`appmodelsuser.view` until the starters alias `user`).
 
 Added by credential-scope 07, each offered to the widest set: `{key}.view` for every particle resource (a read the guard
 admits without a narrowed Gate decision), `me.view`, `passkey.view` / `.create` / `.update` / `.delete`,
