@@ -363,7 +363,7 @@ Probe v2 (`logs/08/r6/bin/route-sweep-08.php`) is 05's probe H with four changes
   `inspect(` matched `$budget->inspect(` (a spend check, `BudgetController@show`). Only a policy class reference,
   `getPolicyFor(`, an `ability:` argument or beam's read guard counts now.
 
-These changes exposed seven methods 05 and 07 had counted gated (unit: methods): `CapabilityController@index`,
+These changes exposed six methods 05 and 07 had counted gated (unit: methods): `CapabilityController@index`,
 `StudioController@generateComposition`, `EvalRunController@index`, `CoherenceReadController@show`,
 `SubscriptionController@show` and `BudgetController@show`, all named above, plus the write-pipeline and helper-held
 steps classified below. The same probe on the base flagship (c716d0d8, before 08) reports 94 unclassified candidate
