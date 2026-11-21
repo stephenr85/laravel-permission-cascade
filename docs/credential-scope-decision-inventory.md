@@ -112,6 +112,7 @@ correctly), **exempt** (ADR 0006's exemptions), **open** (a scoped token passes 
 | beam-analytics | `analytics-area.view.*` | named (flat) |
 | beam-calendars | `ActionPolicy`, `ActionSeriesPolicy`, cascade models | named (derived) |
 | beam-commerce | `PlanPolicy`, `SiteBillingEntryPolicy`; `entitlement:commerce.manage` | named / exempt |
+| beam-commerce | wallet, auto-reload, subscription and spend-cap reads (`CreditsController@show`, `AutoReloadConfigController@show` / `@activity`, `SubscriptionController@show`, `BudgetController@show`) | `credits.view`, `auto-reload.view`, `subscription.view`, `budget.view` (registered, offered): named (08, beam-commerce 24f6f12, 7ed593c, 47f7e96) |
 | beam-docs | `PublicationPolicy`, `ProsePolicy` | no decision (domain objects) |
 | beam-embed | `EmbedPolicy` | named (rungs) |
 | beam-media | `media.ingest` | named (flat) |
@@ -145,6 +146,9 @@ correctly), **exempt** (ADR 0006's exemptions), **open** (a scoped token passes 
 | `Frame\ConduitResourceHandler` index, show, summary (custom Frame handler); update asks its response's read before the first write | `conduits.view`, `conduit.view`, `conduit.{id}.view` via `ResourceReadGuard::authorizeScopedRead()` | named (07 R5, tower c4138d4; update order a8407cd) |
 | `Api\V1\ThreadController@create` / `@update` (a thread named by a body or route `id`, saved with no decision: any member rewrote any thread; found by R6) | `thread.update`, `thread.{id}.update`, `thread.own.update` (ThreadPolicy::update, asked before any write) | named (07, orchestrator ruling, tower f9dd5e7) |
 | `Api\V1\CapabilityController@index` (`GET capabilities?surface=…`; the ladder carries the tenant's own conduit overlay; a satellite reads it with its device-paired token). 05/07's probe counted it gated only because a word in its docblock matched | `capability.view` (offered) | named (08, tower bb89ab1a) |
+| `Composition\Http\Controllers\StudioController@generateComposition` (a model spend and a new composition; `publish: true` also publishes) | `composition-idea.generate`, `composition-idea.{id}.generate`; with `publish: true` also `composition.update` (the publish transition's name) | named (08, tower 534d312d) |
+| `Api\V1\EvalRunController@index` (the eval overview: every golden set with its runs) | `eval-run.view` | named (08, tower 534d312d) |
+| `Api\V1\CoherenceReadController@show` (`POST grounding/coherence`: resolves saved scopes and the tenant's pull bindings, then fuses) | `grounding.read` | named (08, tower 534d312d) |
 | `Navigation\Gates\AccessGate:65` Root nav token | an offer, not an authority | not reachable as a grant |
 | `PolishPolicy`, `MaterializationPolicy`, federation `*ResolutionPolicy` / `CorpusAudiencePolicy` | — | no decision (domain objects) |
 
@@ -354,7 +358,16 @@ Probe v2 (`logs/08/r6/bin/route-sweep-08.php`) is 05's probe H with four changes
 - it reads a closure route's source;
 - it strips comments before matching. 05's pattern matched `Policy` and `ability` in docblocks, so a method whose only
   "step" was prose counted as gated. That is how `CapabilityController@index` was missed;
-- it reads an invokable controller's `__invoke`.
+- it reads an invokable controller's `__invoke`;
+- bare words no longer count. A bare `Policy` matched `$factPolicy` (`StudioController@generateComposition`), and a bare
+  `inspect(` matched `$budget->inspect(` (a spend check, `BudgetController@show`). Only a policy class reference,
+  `getPolicyFor(`, an `ability:` argument or beam's read guard counts now.
+
+These changes exposed seven methods 05 and 07 had counted gated (unit: methods): `CapabilityController@index`,
+`StudioController@generateComposition`, `EvalRunController@index`, `CoherenceReadController@show`,
+`SubscriptionController@show` and `BudgetController@show`, all named above, plus the write-pipeline and helper-held
+steps classified below. The same probe on the base flagship (c716d0d8, before 08) reports 94 unclassified candidate
+routes; at the 08 candidate it reports 0.
 
 Candidates are classified by `logs/08/r6/bin/classify-08.py`:
 - a 07 class is kept where 07 closed the route;
